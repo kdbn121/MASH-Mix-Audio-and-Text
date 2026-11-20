@@ -35,6 +35,7 @@ Extract lyrics from a song or a spoken track.
 | `--stem` | the title, or `lyrics` | The base name for the written files |
 | `--format` | `srt` and `txt` | The output format. Repeat the flag for more than one. One of `srt`, `txt`, `vtt`, `lrc`, `json` |
 | `--lang`, `--language` | `bn-BD` | The language tag. `bn`, `bn-BD`, `bn-IN` |
+| `--script` | `bangla` | The writing system of the lines. `bangla` or `banglish` |
 | `--backend` | `auto` | The speech to text backend |
 | `--model` | the backend default | The model id for the backend |
 | `--title` | none | The title written into the file header |

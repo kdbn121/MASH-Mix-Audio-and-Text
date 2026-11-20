@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any, List, Optional, Sequence
 
 from ..types import AudioBuffer, LyricLine, LyricsResult, Segment
-from ._common import Timer, pick_backend, to_buffer
+from ._common import Timer, pick_backend, to_buffer, to_stereo_buffer
 
 __all__ = ["extract_lyrics", "extract_lyrics_to_files"]
 
@@ -62,6 +62,87 @@ def _merge_short_lines(
                 continue
         merged.append(line)
     return merged
+
+
+def _collapse_word_repeats(text: str, max_repeat: int = 2) -> str:
+    """Collapse a word that the recogniser repeated over and over."""
+    words = text.split()
+    if not words:
+        return ""
+    out: List[str] = []
+    previous: Optional[str] = None
+    count = 0
+    for word in words:
+        key = word.lower()
+        if key == previous:
+            count += 1
+            if count > max_repeat:
+                continue
+        else:
+            previous = key
+            count = 1
+        out.append(word)
+    return " ".join(out)
+
+
+def _is_repetition_loop(text: str, threshold: int = 6) -> bool:
+    """True when a line is one word or one phrase repeated over and over.
+
+    A speech model that loses the plot on sung audio falls into this loop and
+    writes the same syllable until it runs out of tokens. The line carries no
+    lyric, so it is dropped.
+    """
+    words = text.split()
+    if len(words) < threshold:
+        return False
+    distinct = len({word.lower() for word in words})
+    return distinct <= max(2, len(words) // 4)
+
+
+def _split_on_pauses(
+    segments: Sequence[Segment],
+    *,
+    gap: float = 0.35,
+    max_chars: int = 55,
+) -> List[Segment]:
+    """Break long recognised segments into lyric lines at the pauses.
+
+    A recogniser returns one segment per utterance, and on a song that is one
+    long run of words for a whole verse. Karaoke timing needs the lines, so
+    the segment is cut where the singer breathes, and where a line would grow
+    past a comfortable length.
+    """
+    out: List[Segment] = []
+    for seg in segments:
+        words = list(seg.words or [])
+        if not words:
+            out.append(seg)
+            continue
+        group: List[Any] = []
+        length = 0
+        for word in words:
+            if group:
+                previous = group[-1]
+                pause = float(word.start) - float(previous.end)
+                if pause > gap or length + len(word.text) > max_chars:
+                    out.append(_segment_from_words(group))
+                    group = []
+                    length = 0
+            group.append(word)
+            length += len(word.text) + 1
+        if group:
+            out.append(_segment_from_words(group))
+    return out
+
+
+def _segment_from_words(words: Sequence[Any]) -> Segment:
+    """Build one segment out of a run of words."""
+    return Segment(
+        start=float(words[0].start),
+        end=float(words[-1].end),
+        text=" ".join(word.text for word in words).strip(),
+        words=list(words),
+    )
 
 
 def _shift(segments: Sequence[Segment], offset: float) -> List[Segment]:
@@ -108,6 +189,7 @@ def extract_lyrics(
     engine_vad: bool = False,
     sample_rate: int = 16000,
     progress: bool = False,
+    script: str = "bangla",
     **kwargs: Any,
 ) -> LyricsResult:
     """Extract lyrics from a song or spoken track.
@@ -128,6 +210,10 @@ def extract_lyrics(
         default, because a speech VAD trained on conversation cuts through
         sustained sung phrases and leaves a choir with fragments. The silence
         aware chunking in this module already skips the quiet parts.
+    script:
+        The writing system of the returned lines. ``bangla`` keeps the native
+        script and writes out any romanised Bangla the recogniser produced.
+        ``banglish`` returns the same content in Latin letters.
     """
     from ..audio.chunk import chunk_audio
     from ..backends.registry import get_stt
@@ -142,12 +228,22 @@ def extract_lyrics(
         from ..audio.separate import separate
 
         try:
-            separated = separate(buffer.mono(), buffer.sample_rate, model=separation_model)
+            # The separator needs the stereo mix at its own sample rate. The
+            # mono 16 kHz buffer below has already thrown that away, so the
+            # file is opened again for the separation step.
+            stereo = to_stereo_buffer(audio)
+            separated = separate(
+                stereo.samples,
+                stereo.sample_rate,
+                model=separation_model,
+            )
         except Exception:
             separated = None
         if separated and "vocals" in separated.stems:
-            buffer = AudioBuffer(separated.stems["vocals"], separated.sample_rate, 1)
-            buffer = to_buffer(buffer, sample_rate=sample_rate)
+            buffer = to_buffer(
+                AudioBuffer(separated.stems["vocals"], separated.sample_rate, 1),
+                sample_rate=sample_rate,
+            )
 
     name = pick_backend("stt", backend)
 
@@ -199,10 +295,21 @@ def extract_lyrics(
     lines: List[LyricLine] = []
     bangla_requested = is_bangla(language) if language else False
     repaired = 0
-    for seg in segments:
+    dropped_loops = 0
+    collapsed = 0
+    for seg in _split_on_pauses(segments):
         text = clean_asr_text(seg.text)
         if not text:
             continue
+        if _is_repetition_loop(text):
+            # The recogniser fell into a loop on this passage. It carries no
+            # lyric, so the line goes.
+            dropped_loops += 1
+            continue
+        tightened = _collapse_word_repeats(text)
+        if tightened != text:
+            collapsed += 1
+            text = tightened
         if bangla_requested and needs_script_repair(text, target="bangla"):
             # The model answered in Devanagari. Bring it back to Bangla.
             text = repair_to_bangla(text)
@@ -224,6 +331,17 @@ def extract_lyrics(
         lines = _merge_short_lines(lines)
 
     full_text = "\n".join(line.text for line in lines)
+
+    # One decision for the whole document: is this song written in romanised
+    # Bangla, and which script should the lines come back in.
+    from ..lang.translit import apply_script, resolve_script_target
+
+    target_script = resolve_script_target(full_text, script)
+    if target_script:
+        for line in lines:
+            line.text = apply_script(line.text, target_script)
+        full_text = "\n".join(line.text for line in lines)
+
     detected = detect_region(full_text, default=language or "bn-BD")
 
     return LyricsResult(
@@ -245,6 +363,11 @@ def extract_lyrics(
             "script": detected.script,
             "script_repaired_lines": repaired,
             "engine_vad": engine_vad,
+            "output_script": target_script or "as recognised",
+            "sample_rate": buffer.sample_rate,
+            "channels": buffer.channels,
+            "dropped_loops": dropped_loops,
+            "collapsed_repeats": collapsed,
         },
     )
 

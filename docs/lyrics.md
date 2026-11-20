@@ -151,6 +151,56 @@ mash-mix lyrics "song.mp3" -o out --max-repeats 1
 
 Lower it to 1 if the model still loops, raise it to 3 if a real chorus is being cut.
 
+### The model
+
+This is the biggest single lever on a Bangla song. A general Whisper model writes
+Bangla poorly, and on a song it often answers in romanised Bangla instead of Bangla
+script. The Bangla fine tunes of Whisper large v3 do not have that problem.
+
+```bash
+mash-mix lyrics "song.mp3" -o out \
+  --backend transformers \
+  --model mozilla-ai/whisper-large-v3-turbo-bn
+```
+
+| Model | Word error rate on Bengali | Speed |
+|---|---|---|
+| `openai/whisper-large-v3` | 55 percent | slow |
+| `mozilla-ai/whisper-large-v3-bn` | 9.7 percent | slow |
+| `mozilla-ai/whisper-large-v3-turbo-bn` | 11 percent | four times faster, the recommended one |
+
+The fine tunes run through the `transformers` backend, so `--backend transformers` goes
+with them.
+
+### Measuring the result
+
+`scripts/lyrics_eval.py` scores the engine against the real lyric file of a song.
+
+```bash
+python scripts/lyrics_eval.py "song.mp3" "true-lyrics.txt" \
+  --backend transformers --model mozilla-ai/whisper-large-v3-turbo-bn
+```
+
+It reports the word error rate, the share of true lines that were found with a close
+match, and every line that was missed. The report is written as JSON when `--out-dir`
+is given, so two runs can be compared.
+
+### The output script
+
+`--script` chooses the writing system of the lines.
+
+| Value | Result |
+|---|---|
+| `bangla` | Bangla script. Any romanised Bangla the recogniser produced is written out in Bangla |
+| `banglish` | Latin letters |
+
+```bash
+mash-mix lyrics "song.mp3" -o out --script banglish
+```
+
+The decision is made over the whole song, not line by line, so an English line inside
+a Bangla song is not rewritten.
+
 ## The output formats
 
 The same lyric lines in four formats.

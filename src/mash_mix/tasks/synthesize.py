@@ -21,6 +21,7 @@ def synthesize(
     speed: float = 1.0,
     reference_audio: Optional[Any] = None,
     normalize: bool = True,
+    script: str = "bangla",
     **kwargs: Any,
 ) -> SynthesisResult:
     """Turn text into speech.
@@ -29,14 +30,24 @@ def synthesize(
     on, the text is prepared for a Bangla speech engine: symbols are spelled
     out, digits are rendered in the numerals the target region expects, and the
     nukta letters are normalised.
+
+    ``script`` decides how the text is written before it is spoken.
+    ``bangla`` writes romanised Bangla out in Bangla, because a Bangla voice
+    reads Latin letters as English. ``banglish`` leaves the text as it was
+    typed.
     """
     from ..backends.registry import get_tts
     from ..lang.normalize import normalize_for_tts
+    from ..lang.translit import apply_script, resolve_script_target
 
     if not text or not text.strip():
         raise ValueError("Nothing to synthesise: the text is empty.")
 
     prepared = normalize_for_tts(text, language=language) if normalize else text
+
+    target_script = resolve_script_target(prepared, script)
+    if target_script == "bangla":
+        prepared = apply_script(prepared, "bangla")
 
     name = pick_backend("tts", backend)
     reference = to_buffer(reference_audio, sample_rate=16000) if reference_audio is not None else None
@@ -56,6 +67,7 @@ def synthesize(
     result.elapsed = timer.elapsed
     result.meta.setdefault("language", language)
     result.meta.setdefault("normalized_text", prepared)
+    result.meta.setdefault("script", target_script or "as typed")
     return result
 
 

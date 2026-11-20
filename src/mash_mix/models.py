@@ -41,6 +41,41 @@ MODEL_CATALOG: List[Dict[str, Any]] = [
         "url": "https://huggingface.co/Systran/faster-whisper-large-v3",
     },
     {
+        "id": "mozilla-ai/whisper-large-v3-bn",
+        "task": "stt",
+        "backend": "transformers",
+        "name": "Whisper large v3, Bangla fine tune",
+        "size": "1.55 B",
+        "languages": "Bengali",
+        "bengali": "yes, the best Bangla accuracy of the open Whisper family",
+        "license": "Apache-2.0",
+        "platforms": "Windows, Linux, macOS, Android, iOS",
+        "notes": (
+            "Whisper large v3 fine tuned on 21409 Bengali samples. The base model "
+            "scores 55 percent word error rate on Bengali, this one scores 9.7 "
+            "percent. The best choice when the audio is Bangla only."
+        ),
+        "url": "https://huggingface.co/mozilla-ai/whisper-large-v3-bn",
+    },
+    {
+        "id": "mozilla-ai/whisper-large-v3-turbo-bn",
+        "task": "stt",
+        "backend": "transformers",
+        "name": "Whisper large v3 turbo, Bangla fine tune",
+        "size": "809 M",
+        "languages": "Bengali",
+        "bengali": "yes, the same fine tune with the speed of the turbo model",
+        "license": "Apache-2.0",
+        "platforms": "Windows, Linux, macOS, Android, iOS",
+        "notes": (
+            "Four times faster than the full model and about as accurate, 11 "
+            "percent word error rate on Bengali. The recommended model for Bangla "
+            "songs, because it also writes the lyrics in Bangla script instead of "
+            "romanised Bangla."
+        ),
+        "url": "https://huggingface.co/mozilla-ai/whisper-large-v3-turbo-bn",
+    },
+    {
         "id": "ehzawad/stt_bn_fastconformer_ctc",
         "task": "stt",
         "backend": "transformers",

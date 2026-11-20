@@ -24,6 +24,19 @@ def _add_common_language(parser: argparse.ArgumentParser, default: str = "bn-BD"
     )
 
 
+def _add_script_option(parser: argparse.ArgumentParser, default: str = "bangla") -> None:
+    parser.add_argument(
+        "--script",
+        dest="script",
+        default=default,
+        choices=["bangla", "banglish"],
+        help=(
+            "Writing system of the text. bangla keeps the native script, "
+            "banglish writes it in Latin letters. Default: %(default)s"
+        ),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the full argument parser."""
     parser = argparse.ArgumentParser(
@@ -49,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format. Repeat for more than one. Default: srt and txt.",
     )
     _add_common_language(lyrics)
+    _add_script_option(lyrics)
     lyrics.add_argument("--backend", default="auto", help="Speech to text backend. Default: auto.")
     lyrics.add_argument("--model", default=None, help="Model id for the backend.")
     lyrics.add_argument("--title", default=None, help="Title written into the file header.")
@@ -82,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format. Default: txt",
     )
     _add_common_language(tr, default="")
+    _add_script_option(tr)
     tr.add_argument("--backend", default="auto")
     tr.add_argument("--model", default=None)
     tr.add_argument("--task", default="transcribe", choices=["transcribe", "translate"])
@@ -94,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     speak.add_argument("text", help="The text to speak.")
     speak.add_argument("-o", "--output", default="speech.wav", help="Output audio file.")
     _add_common_language(speak)
+    _add_script_option(speak)
     speak.add_argument("--backend", default="auto")
     speak.add_argument("--model", default=None)
     speak.add_argument("--voice", default=None)
@@ -110,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     sts.add_argument("--reference-audio", default=None)
     sts.add_argument("--stt-backend", default="auto")
     sts.add_argument("--tts-backend", default="auto")
+    _add_script_option(sts)
 
     # -- analyze --------------------------------------------------------
     an = sub.add_parser("analyze", help="Measure tempo, key, loudness and sections.")
@@ -196,6 +213,7 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
         hotwords=args.hotwords,
         initial_prompt=args.prompt,
         max_repeats=args.max_repeats,
+        script=args.script,
     )
     result = written.pop("result")
     if args.print_text:
@@ -223,6 +241,7 @@ def _cmd_transcribe(args: argparse.Namespace) -> int:
         task=args.task,
         hotwords=args.hotwords,
         initial_prompt=args.prompt,
+        script=args.script,
     )
 
     if args.output_format == "json":
@@ -264,6 +283,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
         speed=args.speed,
         reference_audio=args.reference_audio,
         normalize=not args.no_normalize,
+        script=args.script,
     )
     print(f"audio: {written['audio']}")
     return 0
@@ -280,6 +300,7 @@ def _cmd_sts(args: argparse.Namespace) -> int:
         reference_audio=args.reference_audio,
         stt_backend=args.stt_backend,
         tts_backend=args.tts_backend,
+        script=args.script,
     )
     save(args.output, result.audio, result.sample_rate)
     print(f"audio: {args.output}")

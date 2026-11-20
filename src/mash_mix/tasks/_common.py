@@ -12,6 +12,7 @@ from ..types import AudioBuffer
 __all__ = [
     "pick_backend",
     "to_buffer",
+    "to_stereo_buffer",
     "Timer",
     "chunk_offsets",
 ]
@@ -81,6 +82,19 @@ def to_buffer(source: Any, *, sample_rate: Optional[int] = 16000) -> AudioBuffer
 
         buffer = resample_buffer(buffer, sample_rate)
     return buffer
+
+
+def to_stereo_buffer(source: Any) -> AudioBuffer:
+    """Turn a path, file object or AudioBuffer into a buffer that keeps its channels.
+
+    A source separator needs the stereo mix at the sample rate it was recorded
+    at. The mono buffer the recogniser works on has already thrown both of
+    those away, so the file is opened a second time when separation is asked
+    for.
+    """
+    if isinstance(source, AudioBuffer):
+        return source
+    return load_audio_file(source, sr=None, mono=False)
 
 
 class Timer:

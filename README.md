@@ -159,11 +159,45 @@ instrumentals, and split words across a chorus. The pipeline handles each of tho
 | Instrumentals get turned into words | Voice activity detection skips silent passages |
 | The mix hides the voice | Optional vocal separation, `htdemucs` or the dependency free `mid_side` |
 | The model loops on a sung phrase | Consecutive duplicate lines are collapsed |
+| The model writes the same syllable fifty times | A line that is one repeated word is dropped |
 | A chorus repeats the same line | Duplicate detection keeps the first occurrence and drops the rest |
 | The model answers in Devanagari | Script repair maps it back to Bangla script |
+| The model answers in romanised Bangla | The script layer writes it out in Bangla |
 | The recogniser cuts through a sustained note | The engine's own voice activity detection is off for lyrics |
 | Bangla needs different preparation | Bangla normalisation, then a Bangla clean pass on the output |
 | Words get split mid phrase | Short fragments merge with the next line when the gap is small |
+| A verse comes back as one long line | Lines are cut at the pauses, using the word timings |
+| The base model writes Bangla badly | Use a Bangla fine tune, `mozilla-ai/whisper-large-v3-turbo-bn` |
+
+### The model matters most
+
+A general Whisper model writes Bangla poorly. The Bangla fine tunes of Whisper large v3
+are far better, and they write the lyrics in Bangla script instead of romanised Bangla.
+
+| Model | Word error rate on Bengali | Note |
+|---|---|---|
+| `openai/whisper-large-v3` | 55 percent | the general purpose model |
+| `mozilla-ai/whisper-large-v3-bn` | 9.7 percent | the best Bangla accuracy available |
+| `mozilla-ai/whisper-large-v3-turbo-bn` | 11 percent | four times faster, the recommended one |
+
+```bash
+mash-mix lyrics "bangla song.mp3" \
+  --backend transformers \
+  --model mozilla-ai/whisper-large-v3-turbo-bn
+```
+
+### Measuring the result
+
+A lyric engine is easy to build and hard to trust, so the engine can be scored against
+the real lyric file of a song.
+
+```bash
+python scripts/lyrics_eval.py "song.mp3" "true-lyrics.txt" --backend transformers \
+  --model mozilla-ai/whisper-large-v3-turbo-bn
+```
+
+It prints the word error rate, the share of true lines that were found, and every line
+that was missed, so a change can be measured rather than guessed.
 
 ---
 
@@ -226,6 +260,32 @@ from mash_mix.lang import banglish_to_bangla
 banglish_to_bangla("ami tomay bhalobashi")
 # আমি তোমায় ভালোবাসি
 ```
+
+### Bangla or Banglish, the caller decides
+
+Every task that produces text takes a `script` argument. `bangla` keeps the native
+script, `banglish` writes the same content in Latin letters.
+
+```python
+from mash_mix import extract_lyrics
+
+bangla = extract_lyrics("song.mp3", script="bangla")
+banglish = extract_lyrics("song.mp3", script="banglish")
+```
+
+```bash
+mash-mix lyrics "song.mp3" -o out --script banglish
+mash-mix transcribe "speech.wav" --script banglish
+mash-mix speak "ami tomay bhalobashi" --script bangla
+```
+
+The same choice fixes the two problems that come with romanised Bangla in a Bangla
+pipeline:
+
+- a recogniser that answers in romanised Bangla is written out in Bangla, because a
+  Bangla voice reads Latin letters as English;
+- a user who types Banglish into a Bangla text to speech command still gets Bangla
+  speech, because the text is converted before it is spoken.
 
 ### Regional detection
 
@@ -318,6 +378,14 @@ mash-mix serve --host 0.0.0.0 --port 8000
 
 Open `http://localhost:8000`. Drop in an audio file, press **Extract lyrics**, then
 download the `.srt` or the `.txt`.
+
+The page shows the attached file as soon as it is chosen: the name, the size, the type
+and the length, so there is never any doubt about whether the file arrived. When the
+engine has opened the file, the card also shows what the server found: the container,
+the sample rate and the number of channels.
+
+Next to the language there is an **Output script** choice, `Bangla` or `Banglish`, so
+the caller decides which writing system the lyrics come back in.
 
 | Route | Method | What it does |
 |---|---|---|
@@ -445,6 +513,19 @@ skipped by default:
 ```bash
 pytest -m model
 ```
+
+The self check scripts live in `scripts/`.
+
+| Script | What it does |
+|---|---|
+| `lyrics_eval.py` | Scores extracted lyrics against the real lyric file of a song |
+| `convert_model.py` | Converts a Whisper checkpoint into the CTranslate2 format |
+| `verify_lexicon.py` | Checks the curated romanised Bangla dictionary |
+| `verify_bangla_maps.py` | Checks the Bangla and Devanagari mapping tables |
+| `crosscheck.py` | Runs the whole pipeline over a test track |
+| `server_check.py` | Runs the HTTP server and the web interface end to end |
+| `sts_check.py` | Runs the speech to speech chain |
+| `cuda_probe.py` | Tells the engine whether the GPU path works on this machine |
 
 ---
 

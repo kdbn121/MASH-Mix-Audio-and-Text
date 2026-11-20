@@ -268,6 +268,18 @@ class PipelineSTSBackend(STSBackend):
             text = _devanagari_to_bangla(text)
             script_converted = True
 
+        if _base_language(target_language) == "bn":
+            # A Bangla voice reads Latin letters as English, so romanised
+            # Bangla is written out in Bangla before it is spoken again.
+            from ...lang.translit import apply_script, resolve_script_target
+
+            wanted = str(kwargs.pop("script", "bangla") or "bangla").strip().lower()
+            if resolve_script_target(text, wanted) == "bangla":
+                converted = apply_script(text, "bangla")
+                if converted != text:
+                    script_converted = True
+                text = converted
+
         translated = False
         if text and _base_language(detected) != _base_language(target_language):
             if callable(translator):

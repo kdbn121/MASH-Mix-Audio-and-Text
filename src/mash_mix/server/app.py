@@ -53,6 +53,35 @@ def _save_upload(upload: UploadFile, folder: Path) -> Path:
     return target
 
 
+def _source_details(path: Path, original_name: str) -> Dict[str, Any]:
+    """Facts about the uploaded file, so the interface can show what arrived."""
+    details: Dict[str, Any] = {
+        "name": original_name or path.name,
+        "size_bytes": None,
+        "duration": None,
+        "sample_rate": None,
+        "channels": None,
+        "bit_rate": None,
+        "format_name": None,
+    }
+    try:
+        from ..audio.io import probe
+
+        facts = probe(path)
+    except Exception:
+        facts = {}
+    for key in ("size_bytes", "duration", "sample_rate", "channels", "bit_rate", "format_name"):
+        value = facts.get(key)
+        if value is not None:
+            details[key] = value
+    if details["size_bytes"] is None:
+        try:
+            details["size_bytes"] = int(path.stat().st_size)
+        except OSError:
+            details["size_bytes"] = None
+    return details
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> Any:
     """The web interface."""
@@ -96,6 +125,7 @@ def models() -> List[Dict[str, Any]]:
 async def lyrics(
     file: UploadFile = File(...),
     language: str = Form("bn-BD"),
+    script: str = Form("bangla"),
     title: Optional[str] = Form(None),
     artist: Optional[str] = Form(None),
     separate_vocals: bool = Form(False),
@@ -108,6 +138,7 @@ async def lyrics(
     job_id = uuid.uuid4().hex[:12]
     folder = _job_dir(job_id)
     source = _save_upload(file, folder)
+    source_info = _source_details(source, file.filename or source.name)
 
     try:
         result = extract_lyrics(
@@ -118,6 +149,7 @@ async def lyrics(
             title=title,
             artist=artist,
             separate_vocals=bool(separate_vocals),
+            script=script or "bangla",
         )
     except Exception as exc:
         shutil.rmtree(folder, ignore_errors=True)
@@ -147,9 +179,11 @@ async def lyrics(
     return {
         "job_id": job_id,
         "language": result.language,
+        "script": result.meta.get("output_script", script or "bangla"),
         "duration": result.duration,
         "title": result.title,
         "artist": result.artist,
+        "source": source_info,
         "text": result.text,
         "lines": [line.to_dict() for line in result.lines],
         "meta": result.meta,
@@ -184,6 +218,7 @@ def download(job_id: str, fmt: str) -> Any:
 async def transcribe(
     file: UploadFile = File(...),
     language: str = Form(""),
+    script: str = Form("bangla"),
     backend: str = Form("auto"),
     model: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
@@ -199,11 +234,14 @@ async def transcribe(
             backend=backend,
             model=model,
             language=language or None,
+            script=script or "bangla",
         )
     except Exception as exc:
         shutil.rmtree(folder, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["source"] = _source_details(source, file.filename or source.name)
+    return payload
 
 
 @app.post("/api/speech")
@@ -223,6 +261,7 @@ def speech(payload: Dict[str, Any]) -> Response:
             language=language,
             voice=payload.get("voice"),
             speed=float(payload.get("speed", 1.0)),
+            script=payload.get("script") or "bangla",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -378,7 +378,42 @@ has_banglish("ami bangladesh dhaka")          # True
 has_banglish("আমি তোমায়")                     # False
 ```
 
-`has_banglish` is a cheap heuristic. It is false for any text that contains a Bangla character, and for Latin text it is true when at least half of the words contain two or more consonants in a row. English text such as "hello world" passes that test, so treat it as a hint rather than a decision.
+`has_banglish` is a cheap heuristic. It is false for any text that contains a Bangla character, and for Latin text it is true when at least half of the words are romanised Bangla, judged by the curated dictionary and by a consonant cluster. English text such as "hello world" passes that test, so treat it as a hint rather than a decision.
+
+### The script choice
+
+`apply_script` puts a piece of text into the requested writing system, and
+`resolve_script_target` decides which one a whole document should be in.
+
+```python
+from mash_mix.lang import apply_script, resolve_script_target
+
+apply_script("ami tomay bhalobashi", "bangla")    # "আমি তোমায় ভালোবাসি"
+apply_script("আমি তোমায়", "banglish")              # "ami tomay"
+resolve_script_target("ami tomay bhalobashi", "bangla")   # "bangla"
+resolve_script_target("the weather is fine today", "bangla")  # "" , left alone
+```
+
+The decision is made over the document and not over each line, because a single
+line does not say whether it is romanised Bangla or an English line inside a
+Bangla song. A document that already holds Bangla script has its Latin runs
+written out, because there they are leaks from the recogniser.
+
+Every task takes the same argument, and so does the command line and the API.
+
+```python
+from mash_mix import extract_lyrics
+
+extract_lyrics("song.mp3", script="bangla")
+extract_lyrics("song.mp3", script="banglish")
+```
+
+```bash
+mash-mix lyrics "song.mp3" -o out --script banglish
+```
+
+This is also what stops a Bangla voice reading Latin letters as English. The text
+is converted before it is spoken, in text to speech and in speech to speech.
 
 Bangla script input passes through the transliterator unchanged apart from normalisation:
 

@@ -23,6 +23,7 @@ def speak(
     tts_backend: str = "auto",
     translator: Optional[Any] = None,
     sample_rate: int = 16000,
+    script: str = "bangla",
     **kwargs: Any,
 ) -> SynthesisResult:
     """Speak the content of an audio file in another language or another voice.
@@ -31,6 +32,10 @@ def speak(
     synthesis backend. Pass a ``translator`` callable, which takes the
     recognised text and the target language tag and returns the translated
     text, to change language as well.
+
+    ``script`` picks the writing system of the text between the two steps.
+    ``bangla`` writes romanised Bangla out in Bangla, so the voice does not
+    read Latin letters as English.
     """
     from ..backends.registry import get_sts
 
@@ -51,6 +56,7 @@ def speak(
             stt_backend=stt_backend,
             tts_backend=tts_backend,
             translator=translator,
+            script=script,
             **kwargs,
         )
 

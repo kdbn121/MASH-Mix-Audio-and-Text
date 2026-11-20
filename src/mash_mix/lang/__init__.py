@@ -48,7 +48,16 @@ from .script import (
     needs_script_repair,
     repair_to_bangla,
 )
-from .translit import bangla_to_latin, banglish_to_bangla, convert_sentence, has_banglish
+from .translit import (
+    SCRIPT_TARGETS,
+    apply_script,
+    bangla_to_latin,
+    banglish_to_bangla,
+    banglish_word_ratio,
+    convert_sentence,
+    has_banglish,
+    resolve_script_target,
+)
 
 __all__ = [
     "ALL_LANGUAGES",
@@ -57,10 +66,13 @@ __all__ = [
     "BANGLA_IN",
     "DialectReport",
     "LanguageSpec",
+    "SCRIPT_TARGETS",
+    "apply_script",
     "bangla_ratio",
     "bangla_to_devanagari",
     "bangla_to_latin",
     "banglish_to_bangla",
+    "banglish_word_ratio",
     "canonical_nukta",
     "clean_asr_text",
     "convert_sentence",
@@ -89,6 +101,7 @@ __all__ = [
     "region_of",
     "repair_to_bangla",
     "resolve",
+    "resolve_script_target",
     "script_of",
     "script_profile",
     "sibling_tags",

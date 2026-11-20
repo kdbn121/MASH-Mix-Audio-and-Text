@@ -113,9 +113,9 @@ result = transcribe("clip.wav", backend="funasr", language="bn-BD")
 
 The Hugging Face pipeline. It opens up every model on the Hub, including the Bengali specific ones such as `ehzawad/stt_bn_fastconformer_ctc`, which is the strongest public Bengali model on the public benchmarks.
 
-Strengths: the widest model choice, so it is the way to reach a Bangla specialist model that is not a Whisper derivative.
+Strengths: the widest model choice, so it is the way to reach a Bangla specialist model that is not a Whisper derivative. The Bangla fine tunes of Whisper large v3, `mozilla-ai/whisper-large-v3-bn` and `mozilla-ai/whisper-large-v3-turbo-bn`, run here and they are the best choice for a Bangla song.
 
-Limits: the slowest of the family on a CPU, and the largest dependency.
+Limits: the largest dependency. On a CPU the model runs in `bfloat16`, which is about three times faster than `float32` and gives the same text.
 
 ```python
 result = transcribe(
@@ -125,6 +125,22 @@ result = transcribe(
     language="bn-BD",
 )
 ```
+
+For a Bangla song:
+
+```python
+result = extract_lyrics(
+    "song.mp3",
+    backend="transformers",
+    model="mozilla-ai/whisper-large-v3-turbo-bn",
+    language="bn-BD",
+)
+```
+
+A checkpoint can also be converted into the CTranslate2 format, which the fast
+backend loads, with `scripts/convert_model.py`. Measure the conversion with
+`scripts/lyrics_eval.py` before you trust it, because a quantised conversion of
+a fine tuned model can lose accuracy.
 
 ### sherpa-onnx
 

@@ -151,6 +151,7 @@ The body is multipart form data.
 |---|---|---|---|
 | `file` | file | required | The audio or video file |
 | `language` | string | `bn-BD` | The language tag |
+| `script` | string | `bangla` | The writing system: `bangla` or `banglish` |
 | `title` | string | none | The title written into the file header |
 | `artist` | string | none | The artist written into the file header |
 | `separate_vocals` | boolean | `false` | Pull the vocal stem out before recognition |
@@ -161,6 +162,7 @@ The body is multipart form data.
 curl -X POST http://localhost:8000/api/lyrics \
   -F "file=@song.mp3" \
   -F "language=bn-BD" \
+  -F "script=bangla" \
   -F "title=Kobita tuku" \
   -F "artist=MASH"
 ```
@@ -169,9 +171,19 @@ curl -X POST http://localhost:8000/api/lyrics \
 {
   "job_id": "a1b2c3d4e5f6",
   "language": "bn-BD",
+  "script": "bangla",
   "duration": 214.3,
   "title": "Kobita tuku",
   "artist": "MASH",
+  "source": {
+    "name": "song.mp3",
+    "size_bytes": 6043867,
+    "duration": 214.3,
+    "sample_rate": 48000,
+    "channels": 2,
+    "bit_rate": 184067,
+    "format_name": "mp3"
+  },
   "text": "প্রথম লাইন\nদ্বিতীয় লাইন",
   "lines": [
     {
@@ -189,7 +201,12 @@ curl -X POST http://localhost:8000/api/lyrics \
     "evidence": ["BD:আপ্নে x1"],
     "bd_score": 3.8,
     "in_score": 0.3,
-    "script": "bangla"
+    "script": "bangla",
+    "output_script": "bangla",
+    "sample_rate": 16000,
+    "channels": 1,
+    "dropped_loops": 0,
+    "collapsed_repeats": 2
   },
   "downloads": {
     "srt": "/api/lyrics/a1b2c3d4e5f6/download/srt",
@@ -204,11 +221,13 @@ curl -X POST http://localhost:8000/api/lyrics \
 |---|---|---|
 | `job_id` | string | The identifier of this job. Use it for the download routes |
 | `language` | string | The language of the lyrics |
+| `script` | string | The writing system the lines came back in |
 | `duration` | number | The length of the audio in seconds |
+| `source` | object | What the server found when it opened the file: name, size, container, sample rate, channels |
 | `title`, `artist` | string or null | What you passed in |
 | `text` | string | The lyric lines joined by newlines |
 | `lines` | array | The lyric lines with their times |
-| `meta` | object | The chunk count and the regional detection evidence |
+| `meta` | object | The chunk count, the regional detection evidence and the pipeline counters |
 | `downloads` | object | The four download links |
 
 An error returns status 500 with the message in `detail`.

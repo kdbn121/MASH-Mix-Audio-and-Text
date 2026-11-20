@@ -24,12 +24,16 @@ def transcribe(
     initial_prompt: Optional[str] = None,
     sample_rate: int = 16000,
     progress: bool = False,
+    script: str = "bangla",
     **kwargs: Any,
 ) -> Transcription:
     """Transcribe speech from a file path, file object or AudioBuffer.
 
     ``language`` accepts any Bangla tag, for example ``bn``, ``bn-BD`` or
     ``bn-IN``. When it is not given the backend detects the language.
+    ``script`` picks the writing system of the returned text: ``bangla`` keeps
+    the native script and writes out romanised Bangla, ``banglish`` returns
+    Latin letters.
     """
     from ..backends.registry import get_stt
 
@@ -51,11 +55,20 @@ def transcribe(
             **kwargs,
         )
 
+    from ..lang.translit import apply_script, resolve_script_target
+
+    target_script = resolve_script_target(result.text, script)
+    if target_script:
+        result.text = apply_script(result.text, target_script)
+        for segment in result.segments:
+            segment.text = apply_script(segment.text, target_script)
+
     result.duration = buffer.duration
     result.backend = result.backend or name
     result.elapsed = timer.elapsed
     result.meta.setdefault("sample_rate", buffer.sample_rate)
     result.meta.setdefault("channels", buffer.channels)
+    result.meta.setdefault("script", target_script or "as recognised")
     return result
 
 

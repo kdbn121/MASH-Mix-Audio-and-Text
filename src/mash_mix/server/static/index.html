@@ -58,13 +58,55 @@
   #drop.hot { border-color: var(--accent); background: var(--panel-2); }
   #drop .big { font-size: 17px; margin-bottom: 6px; }
   #drop .small { color: var(--muted); font-size: 13px; }
-  #file { display: none; }
+  /* The file input stays in the page for assistive technology and for tests,
+     it is only taken out of sight. */
+  #file {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
   .chosen { margin-top: 12px; color: var(--muted); font-size: 13px; word-break: break-all; }
+
+  /* the file that is attached, shown before anything is processed */
+  .filecard {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel-2);
+    padding: 13px 14px;
+  }
+  .filecard[hidden] { display: none; }
+  .filecard .fc-top { display: flex; gap: 12px; align-items: flex-start; }
+  .filecard .fc-name {
+    flex: 1; font-weight: 700; font-size: 15px; word-break: break-all; line-height: 1.35;
+  }
+  .filecard .fc-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .badge {
+    flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 999px;
+    background: rgba(110, 168, 254, .16); color: var(--accent-2);
+  }
+  .badge.ready { background: rgba(86, 211, 100, .16); color: var(--ok); }
+  .badge.busy { background: rgba(243, 169, 180, .16); color: var(--accent); }
+  .filecard .fc-grid {
+    display: grid; grid-template-columns: auto 1fr; gap: 2px 12px;
+    margin-top: 10px; font-size: 12.5px;
+  }
+  .filecard .fc-k { color: var(--muted); }
+  .filecard .fc-v { font-weight: 600; }
+  .filecard .fc-clear {
+    margin-top: 10px; background: none; border: 0; color: var(--muted);
+    font: inherit; font-size: 12.5px; cursor: pointer; padding: 0; text-decoration: underline;
+  }
+  .filecard .fc-clear:hover { color: var(--accent); }
+
   label.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+  label.row > span { flex: 0 0 auto; }
   select, input[type=text] {
     background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
     border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 14px; min-width: 180px;
   }
+  select { max-width: 60%; }
+  .hint { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
   .check { display: flex; align-items: center; gap: 8px; }
   button {
     background: var(--accent); color: #1a1013; border: 0; border-radius: 10px;
@@ -116,6 +158,18 @@
       <input type="file" id="file" accept="audio/*,video/*">
       <div class="chosen" id="chosen">No file chosen</div>
 
+      <div class="filecard" id="filecard" hidden>
+        <div class="fc-top">
+          <div>
+            <div class="fc-name" id="fcName"></div>
+            <div class="fc-sub" id="fcSub"></div>
+          </div>
+          <span class="badge" id="fcBadge">attached</span>
+        </div>
+        <div class="fc-grid" id="fcGrid"></div>
+        <button type="button" class="fc-clear" id="fcClear">Remove this file</button>
+      </div>
+
       <div style="margin-top:18px">
         <label class="row">
           <span>Language</span>
@@ -126,6 +180,21 @@
             <option value="">Auto detect</option>
           </select>
         </label>
+        <label class="row">
+          <span>Output script</span>
+          <select id="script">
+            <option value="bangla" selected>Bangla</option>
+            <option value="banglish">Banglish</option>
+          </select>
+        </label>
+        <div class="hint" id="scriptHint">Bangla is written in the native script. Banglish is the same text in Latin letters.</div>
+        <label class="row">
+          <span>Model</span>
+          <select id="model">
+            <option value="auto" selected>Auto, the engine picks the best</option>
+          </select>
+        </label>
+        <div class="hint">For a Bangla song use the Bangla fine tune of Whisper large v3 turbo. It writes the lyrics in Bangla script and hears the words far better than the general model.</div>        </label>
         <label class="row">
           <span>Title</span>
           <input type="text" id="title" placeholder="optional">
@@ -138,6 +207,7 @@
           <span>Separate vocals first</span>
           <input type="checkbox" id="separate">
         </label>
+        <div class="hint">Separating the voice from the mix makes the lyrics much easier to hear. It takes longer.</div>
       </div>
 
       <button id="go">Extract lyrics</button>
@@ -170,60 +240,173 @@ const chosen = document.getElementById('chosen');
 const go = document.getElementById('go');
 const statusEl = document.getElementById('status');
 const bar = document.getElementById('bar');
+const card = document.getElementById('filecard');
+const fcName = document.getElementById('fcName');
+const fcSub = document.getElementById('fcSub');
+const fcGrid = document.getElementById('fcGrid');
+const fcBadge = document.getElementById('fcBadge');
+const fcClear = document.getElementById('fcClear');
+const scriptSel = document.getElementById('script');
+const scriptHint = document.getElementById('scriptHint');
 let picked = null;
+let audioUrl = null;
 
-drop.addEventListener('click', () => input.click());
-['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
-  ev.preventDefault(); drop.classList.add('hot');
-}));
-['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
-  ev.preventDefault(); drop.classList.remove('hot');
-}));
-drop.addEventListener('drop', ev => {
-  if (ev.dataTransfer.files && ev.dataTransfer.files.length) setFile(ev.dataTransfer.files[0]);
+const SCRIPT_HINTS = {
+  bangla: 'Bangla is written in the native script. Banglish is the same text in Latin letters.',
+  banglish: 'The lyrics come back in Latin letters. The engine reads them aloud as Bangla.'
+};
+scriptSel.addEventListener('change', function () {
+  scriptHint.textContent = SCRIPT_HINTS[scriptSel.value] || '';
 });
-input.addEventListener('change', () => { if (input.files.length) setFile(input.files[0]); });
 
-function setFile(file) {
+function bytes(n) {
+  if (!n && n !== 0) return '';
+  var units = ['B', 'KB', 'MB', 'GB'];
+  var value = n;
+  var i = 0;
+  while (value >= 1024 && i < units.length - 1) { value = value / 1024; i = i + 1; }
+  return (i === 0 ? value : value.toFixed(1)) + ' ' + units[i];
+}
+
+function clock(seconds) {
+  var s = Math.max(0, seconds || 0);
+  var m = Math.floor(s / 60);
+  var r = Math.floor(s % 60);
+  return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0') + '.' +
+    String(Math.floor((s % 1) * 100)).padStart(2, '0');
+}
+
+function row(key, value) {
+  if (value === null || value === undefined || value === '') return '';
+  return '<div class="fc-k">' + key + '</div><div class="fc-v">' + value + '</div>';
+}
+
+function showCard(file) {
+  card.hidden = false;
+  fcName.textContent = file.name;
+  fcSub.textContent = bytes(file.size) + (file.type ? ' - ' + file.type : '');
+  fcBadge.textContent = 'attached';
+  fcBadge.className = 'badge';
+  fcGrid.innerHTML = row('size', bytes(file.size)) + row('type', file.type || 'unknown');
+  readDuration(file);
+}
+
+/* The browser can read the length of the file on its own, so the card fills
+   in before the server is asked to do anything. */
+function readDuration(file) {
+  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+  var probe = document.createElement('audio');
+  audioUrl = URL.createObjectURL(file);
+  probe.preload = 'metadata';
+  probe.onloadedmetadata = function () {
+    if (probe.duration && isFinite(probe.duration)) {
+      var parts = fcGrid.innerHTML.split('</div>');
+      var html = row('duration', clock(probe.duration));
+      fcGrid.innerHTML = html + fcGrid.innerHTML;
+    }
+  };
+  probe.src = audioUrl;
+}
+
+function clearFile() {
+  picked = null;
+  input.value = '';
+  card.hidden = true;
+  chosen.textContent = 'No file chosen';
+  if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
+}
+
+drop.addEventListener('click', function () { input.click(); });
+drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('hot'); });
+drop.addEventListener('dragleave', function () { drop.classList.remove('hot'); });
+drop.addEventListener('drop', function (e) {
+  e.preventDefault();
+  drop.classList.remove('hot');
+  if (e.dataTransfer.files && e.dataTransfer.files.length) { take(e.dataTransfer.files[0]); }
+});
+input.addEventListener('change', function () {
+  if (input.files && input.files.length) { take(input.files[0]); }
+});
+fcClear.addEventListener('click', clearFile);
+
+function take(file) {
   picked = file;
-  chosen.textContent = file.name + '  (' + (file.size / 1048576).toFixed(1) + ' MB)';
-  statusEl.className = 'status';
+  chosen.textContent = 'File attached: ' + file.name;
+  showCard(file);
   statusEl.textContent = '';
-}
-
-function clock(s) {
-  s = Math.max(0, s | 0);
-  const m = Math.floor(s / 60), r = s % 60;
-  return String(m).padStart(2,'0') + ':' + String(r).padStart(2,'0');
-}
-
-go.addEventListener('click', async () => {
-  if (!picked) { statusEl.className = 'status err'; statusEl.textContent = 'Choose a file first.'; return; }
-  go.disabled = true;
   statusEl.className = 'status';
-  statusEl.textContent = 'Reading the audio. This can take a while for a long song.';
+  document.getElementById('result').hidden = true;
+  document.getElementById('empty').hidden = false;
+}
+
+async function loadModels() {
+  try {
+    var response = await fetch('/api/models');
+    var models = await response.json();
+    var select = document.getElementById('model');
+    for (var i = 0; i < models.length; i++) {
+      var item = models[i];
+      if (item.task !== 'stt') { continue; }
+      var option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.name + '  (' + item.id + ')';
+      select.appendChild(option);
+    }
+  } catch (err) {
+    /* the catalogue is a convenience, the engine works without it */
+  }
+}
+loadModels();
+
+go.addEventListener('click', async function () {
+  if (!picked) {
+    statusEl.textContent = 'Choose a file first. Drop one on the box above.';
+    statusEl.className = 'status err';
+    return;
+  }
+  var form = new FormData();
+  form.append('file', picked, picked.name);
+  form.append('language', document.getElementById('lang').value);
+  form.append('script', scriptSel.value);
+  form.append('title', document.getElementById('title').value);
+  form.append('artist', document.getElementById('artist').value);
+  form.append('separate_vocals', document.getElementById('separate').checked ? 'true' : 'false');
+  var model = document.getElementById('model').value;
+  if (model && model !== 'auto') {
+    form.append('model', model);
+    form.append('backend', model.indexOf('Systran/') === 0 ? 'faster-whisper' : 'transformers');
+  }
+
+  go.disabled = true;
+  fcBadge.textContent = 'working';
+  fcBadge.className = 'badge busy';
+  statusEl.textContent = 'Listening to the song and writing the lyrics. This takes a while on a song.';
+  statusEl.className = 'status';
   bar.style.width = '18%';
 
-  const fd = new FormData();
-  fd.append('file', picked);
-  fd.append('language', document.getElementById('lang').value);
-  fd.append('title', document.getElementById('title').value);
-  fd.append('artist', document.getElementById('artist').value);
-  fd.append('separate_vocals', document.getElementById('separate').checked ? 'true' : 'false');
+  var timer = setInterval(function () {
+    var now = parseFloat(bar.style.width || '18');
+    if (now < 88) { bar.style.width = (now + 1.2) + '%'; }
+  }, 1200);
 
   try {
-    const res = await fetch('/api/lyrics', { method: 'POST', body: fd });
-    bar.style.width = '70%';
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
-    render(data);
+    var response = await fetch('/api/lyrics', { method: 'POST', body: form });
+    var data = await response.json();
+    clearInterval(timer);
     bar.style.width = '100%';
+    if (!response.ok) { throw new Error(data.detail || 'The engine failed.'); }
+    render(data);
+    fcBadge.textContent = 'done';
+    fcBadge.className = 'badge ready';
+    statusEl.textContent = 'Done. ' + (data.lines ? data.lines.length : 0) + ' lines ready to download.';
     statusEl.className = 'status ok';
-    statusEl.textContent = 'Done.';
   } catch (err) {
+    clearInterval(timer);
     bar.style.width = '0%';
+    fcBadge.textContent = 'failed';
+    fcBadge.className = 'badge busy';
+    statusEl.textContent = String(err.message || err);
     statusEl.className = 'status err';
-    statusEl.textContent = 'Failed: ' + err.message;
   } finally {
     go.disabled = false;
   }
@@ -233,23 +416,35 @@ function render(data) {
   document.getElementById('empty').hidden = true;
   document.getElementById('result').hidden = false;
 
-  const meta = document.getElementById('meta');
+  var meta = document.getElementById('meta');
   meta.innerHTML = '';
-  const add = (label, value) => {
-    const span = document.createElement('span');
+  function add(label, value) {
+    var span = document.createElement('span');
     span.innerHTML = label + ' <b></b>';
     span.querySelector('b').textContent = value;
     meta.appendChild(span);
-  };
-  add('Language', data.language);
+  }
+  add('Language', data.language || '');
+  add('Script', data.script || '');
   add('Duration', (data.duration || 0).toFixed(1) + ' s');
   add('Lines', (data.lines || []).length);
-  if (data.meta && data.meta.dialect) add('Dialect', data.meta.dialect);
+  if (data.meta && data.meta.dialect) { add('Dialect', data.meta.dialect); }
+  if (data.meta && data.meta.backend) { add('Engine', data.meta.backend); }
+  if (data.meta && data.meta.elapsed) { add('Took', data.meta.elapsed.toFixed(1) + ' s'); }
 
-  const dl = document.getElementById('dl');
+  /* what the server found when it opened the file */
+  var source = data.source || {};
+  fcGrid.innerHTML =
+    row('size', bytes(source.size_bytes)) +
+    row('type', source.format_name || '') +
+    row('duration', source.duration ? clock(source.duration) : '') +
+    row('sample rate', source.sample_rate ? source.sample_rate + ' Hz' : '') +
+    row('channels', source.channels ? source.channels + (source.channels === 1 ? ' mono' : ' stereo') : '');
+
+  var dl = document.getElementById('dl');
   dl.innerHTML = '';
   const labels = { srt: 'Download .srt', txt: 'Download .txt', vtt: 'Download .vtt', lrc: 'Download .lrc' };
-  for (const key of ['srt','txt','vtt','lrc']) {
+  for (const key of ['srt', 'txt', 'vtt', 'lrc']) {
     if (!data.downloads || !data.downloads[key]) continue;
     const a = document.createElement('a');
     a.href = data.downloads[key];
@@ -258,19 +453,20 @@ function render(data) {
     dl.appendChild(a);
   }
 
-  const lines = document.getElementById('lines');
+  var lines = document.getElementById('lines');
   lines.innerHTML = '';
-  for (const line of data.lines || []) {
-    const row = document.createElement('div');
-    row.className = 'ln';
-    const t = document.createElement('div');
+  for (var i = 0; i < (data.lines || []).length; i++) {
+    var line = data.lines[i];
+    var rowEl = document.createElement('div');
+    rowEl.className = 'ln';
+    var t = document.createElement('div');
     t.className = 't';
     t.textContent = clock(line.start);
-    const x = document.createElement('div');
+    var x = document.createElement('div');
     x.className = 'x';
     x.textContent = line.text;
-    row.appendChild(t); row.appendChild(x);
-    lines.appendChild(row);
+    rowEl.appendChild(t); rowEl.appendChild(x);
+    lines.appendChild(rowEl);
   }
 
   document.getElementById('raw').textContent = data.text || '';
