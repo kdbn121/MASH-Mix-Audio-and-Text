@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MASH-Mix-Audio-and-Text | Song to lyric</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b26;
+    --panel-2: #1d2431;
+    --line: #2a3240;
+    --text: #e6edf3;
+    --muted: #9aa7b8;
+    --accent: #f3a9b4;
+    --accent-2: #6ea8fe;
+    --ok: #56d364;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-2: #f0f2f5;
+      --line: #dde2e8;
+      --text: #16202b;
+      --muted: #5c6b7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 "Noto Sans Bengali", "Hind Siliguri", "Nirmala UI", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.2px; }
+  .tag { color: var(--muted); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .card h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  #drop {
+    border: 1.5px dashed var(--line);
+    border-radius: 12px;
+    padding: 30px 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop.hot { border-color: var(--accent); background: var(--panel-2); }
+  #drop .big { font-size: 17px; margin-bottom: 6px; }
+  #drop .small { color: var(--muted); font-size: 13px; }
+  #file { display: none; }
+  .chosen { margin-top: 12px; color: var(--muted); font-size: 13px; word-break: break-all; }
+  label.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+  select, input[type=text] {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 14px; min-width: 180px;
+  }
+  .check { display: flex; align-items: center; gap: 8px; }
+  button {
+    background: var(--accent); color: #1a1013; border: 0; border-radius: 10px;
+    padding: 11px 18px; font: inherit; font-weight: 650; cursor: pointer; width: 100%;
+  }
+  button:disabled { opacity: .55; cursor: progress; }
+  button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); width: auto; }
+  .status { margin-top: 14px; font-size: 14px; color: var(--muted); min-height: 22px; }
+  .status.err { color: #ff7b72; }
+  .status.ok { color: var(--ok); }
+  .bar { height: 4px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent-2); transition: width .2s; }
+  .dl { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .dl a {
+    text-decoration: none; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 15px; font-size: 14px; font-weight: 600;
+  }
+  .dl a:hover { border-color: var(--accent); }
+  .lines { max-height: 460px; overflow: auto; margin-top: 6px; }
+  .ln { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .ln:last-child { border-bottom: 0; }
+  .ln .t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 74px; padding-top: 3px; }
+  .ln .x { flex: 1; font-size: 15px; }
+  pre.raw {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; max-height: 300px; overflow: auto; white-space: pre-wrap; font-size: 14px; margin: 12px 0 0;
+  }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .meta b { color: var(--text); font-weight: 600; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; text-align: center; }
+  footer .licence { display: block; margin-top: 6px; font-size: 12px; opacity: 0.75; }
+  code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MASH-Mix-Audio-and-Text</h1>
+    <span class="tag">Song to lyric, TTS, STT and STS. Bangla first.</span>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>1. Audio</h2>
+      <div id="drop">
+        <div class="big">Drop an audio or video file here</div>
+        <div class="small">mp3, wav, flac, ogg, opus, m4a, mp4 and more. No size limit, no time limit.</div>
+      </div>
+      <input type="file" id="file" accept="audio/*,video/*">
+      <div class="chosen" id="chosen">No file chosen</div>
+
+      <div style="margin-top:18px">
+        <label class="row">
+          <span>Language</span>
+          <select id="lang">
+            <option value="bn-BD" selected>bn-BD, Bangladeshi Bangla</option>
+            <option value="bn-IN">bn-IN, Indian Bengali</option>
+            <option value="bn">bn, automatic region</option>
+            <option value="">Auto detect</option>
+          </select>
+        </label>
+        <label class="row">
+          <span>Title</span>
+          <input type="text" id="title" placeholder="optional">
+        </label>
+        <label class="row">
+          <span>Artist</span>
+          <input type="text" id="artist" placeholder="optional">
+        </label>
+        <label class="row check">
+          <span>Separate vocals first</span>
+          <input type="checkbox" id="separate">
+        </label>
+      </div>
+
+      <button id="go">Extract lyrics</button>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="status" id="status"></div>
+    </section>
+
+    <section class="card">
+      <h2>2. Result</h2>
+      <div id="result" hidden>
+        <div class="meta" id="meta"></div>
+        <div class="dl" id="dl"></div>
+        <div class="lines" id="lines"></div>
+        <pre class="raw" id="raw"></pre>
+      </div>
+      <div id="empty" class="status">Lyrics appear here once the file is processed.</div>
+    </section>
+  </div>
+
+  <footer>
+    Also available as a command: <code>mash-mix lyrics song.mp3 -o out</code>
+    <span class="licence">MASH-Mix-Audio-and-Text. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence.</span>
+  </footer>
+</div>
+
+<script>
+const drop = document.getElementById('drop');
+const input = document.getElementById('file');
+const chosen = document.getElementById('chosen');
+const go = document.getElementById('go');
+const statusEl = document.getElementById('status');
+const bar = document.getElementById('bar');
+let picked = null;
+
+drop.addEventListener('click', () => input.click());
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('hot');
+}));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('hot');
+}));
+drop.addEventListener('drop', ev => {
+  if (ev.dataTransfer.files && ev.dataTransfer.files.length) setFile(ev.dataTransfer.files[0]);
+});
+input.addEventListener('change', () => { if (input.files.length) setFile(input.files[0]); });
+
+function setFile(file) {
+  picked = file;
+  chosen.textContent = file.name + '  (' + (file.size / 1048576).toFixed(1) + ' MB)';
+  statusEl.className = 'status';
+  statusEl.textContent = '';
+}
+
+function clock(s) {
+  s = Math.max(0, s | 0);
+  const m = Math.floor(s / 60), r = s % 60;
+  return String(m).padStart(2,'0') + ':' + String(r).padStart(2,'0');
+}
+
+go.addEventListener('click', async () => {
+  if (!picked) { statusEl.className = 'status err'; statusEl.textContent = 'Choose a file first.'; return; }
+  go.disabled = true;
+  statusEl.className = 'status';
+  statusEl.textContent = 'Reading the audio. This can take a while for a long song.';
+  bar.style.width = '18%';
+
+  const fd = new FormData();
+  fd.append('file', picked);
+  fd.append('language', document.getElementById('lang').value);
+  fd.append('title', document.getElementById('title').value);
+  fd.append('artist', document.getElementById('artist').value);
+  fd.append('separate_vocals', document.getElementById('separate').checked ? 'true' : 'false');
+
+  try {
+    const res = await fetch('/api/lyrics', { method: 'POST', body: fd });
+    bar.style.width = '70%';
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+    render(data);
+    bar.style.width = '100%';
+    statusEl.className = 'status ok';
+    statusEl.textContent = 'Done.';
+  } catch (err) {
+    bar.style.width = '0%';
+    statusEl.className = 'status err';
+    statusEl.textContent = 'Failed: ' + err.message;
+  } finally {
+    go.disabled = false;
+  }
+});
+
+function render(data) {
+  document.getElementById('empty').hidden = true;
+  document.getElementById('result').hidden = false;
+
+  const meta = document.getElementById('meta');
+  meta.innerHTML = '';
+  const add = (label, value) => {
+    const span = document.createElement('span');
+    span.innerHTML = label + ' <b></b>';
+    span.querySelector('b').textContent = value;
+    meta.appendChild(span);
+  };
+  add('Language', data.language);
+  add('Duration', (data.duration || 0).toFixed(1) + ' s');
+  add('Lines', (data.lines || []).length);
+  if (data.meta && data.meta.dialect) add('Dialect', data.meta.dialect);
+
+  const dl = document.getElementById('dl');
+  dl.innerHTML = '';
+  const labels = { srt: 'Download .srt', txt: 'Download .txt', vtt: 'Download .vtt', lrc: 'Download .lrc' };
+  for (const key of ['srt','txt','vtt','lrc']) {
+    if (!data.downloads || !data.downloads[key]) continue;
+    const a = document.createElement('a');
+    a.href = data.downloads[key];
+    a.textContent = labels[key];
+    a.setAttribute('download', '');
+    dl.appendChild(a);
+  }
+
+  const lines = document.getElementById('lines');
+  lines.innerHTML = '';
+  for (const line of data.lines || []) {
+    const row = document.createElement('div');
+    row.className = 'ln';
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = clock(line.start);
+    const x = document.createElement('div');
+    x.className = 'x';
+    x.textContent = line.text;
+    row.appendChild(t); row.appendChild(x);
+    lines.appendChild(row);
+  }
+
+  document.getElementById('raw').textContent = data.text || '';
+}
+</script>
+</body>
+</html>

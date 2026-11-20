@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: MIT | Copyright (c) 2026 MASH (Khaled Bhuiyan)
+"""Language layer: tags, normalisation, numerals, transliteration and dialects."""
+
+from __future__ import annotations
+
+from .dialect import DialectReport, detect_dialect, detect_language, detect_region
+from .normalize import (
+    bangla_ratio,
+    canonical_nukta,
+    clean_asr_text,
+    is_bangla_text,
+    normalize_bangla,
+    normalize_for_tts,
+    normalize_unicode,
+    normalize_whitespace,
+    script_profile,
+    strip_invisible,
+    to_ascii_digits,
+    to_bangla_digits,
+)
+from .numerals import (
+    expand_ordinal,
+    expand_symbols,
+    format_currency,
+    format_date_bangla,
+    format_time_bangla,
+    number_to_bangla_words,
+    parse_number,
+)
+from .registry import (
+    ALL_LANGUAGES,
+    BANGLA,
+    BANGLA_BD,
+    BANGLA_IN,
+    LanguageSpec,
+    is_bangla,
+    list_languages,
+    normalize_tag,
+    region_of,
+    resolve,
+    script_of,
+    sibling_tags,
+)
+from .script import (
+    bangla_to_devanagari,
+    devanagari_to_bangla,
+    dominant_script,
+    needs_script_repair,
+    repair_to_bangla,
+)
+from .translit import bangla_to_latin, banglish_to_bangla, convert_sentence, has_banglish
+
+__all__ = [
+    "ALL_LANGUAGES",
+    "BANGLA",
+    "BANGLA_BD",
+    "BANGLA_IN",
+    "DialectReport",
+    "LanguageSpec",
+    "bangla_ratio",
+    "bangla_to_devanagari",
+    "bangla_to_latin",
+    "banglish_to_bangla",
+    "canonical_nukta",
+    "clean_asr_text",
+    "convert_sentence",
+    "detect_dialect",
+    "detect_language",
+    "detect_region",
+    "devanagari_to_bangla",
+    "dominant_script",
+    "expand_ordinal",
+    "expand_symbols",
+    "format_currency",
+    "format_date_bangla",
+    "format_time_bangla",
+    "has_banglish",
+    "is_bangla",
+    "is_bangla_text",
+    "list_languages",
+    "normalize_bangla",
+    "normalize_for_tts",
+    "normalize_tag",
+    "normalize_unicode",
+    "normalize_whitespace",
+    "needs_script_repair",
+    "number_to_bangla_words",
+    "parse_number",
+    "region_of",
+    "repair_to_bangla",
+    "resolve",
+    "script_of",
+    "script_profile",
+    "sibling_tags",
+    "strip_invisible",
+    "to_ascii_digits",
+    "to_bangla_digits",
+]

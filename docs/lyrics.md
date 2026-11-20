@@ -1,0 +1,342 @@
+# Lyrics
+
+The song to lyric workflow: how it runs, what each stage does, how to get a better result, and what to expect.
+
+## The workflow
+
+### From the command line
+
+```bash
+mash-mix lyrics "bangla song.mp3" -o out --format srt --format txt --lang bn-BD
+```
+
+```
+out/lyrics.srt
+out/lyrics.txt
+```
+
+### From Python
+
+```python
+from mash_mix.tasks.lyrics import extract_lyrics_to_files
+
+written = extract_lyrics_to_files(
+    "bangla song.mp3",
+    "out",
+    formats=["srt", "txt"],
+    language="bn-BD",
+    title="Kobita tuku",
+    artist="MASH",
+)
+
+result = written["result"]
+print(result.language)   # bn-BD
+print(result.text)      # the lyric lines
+print(written["srt"])   # out/lyrics.srt
+```
+
+The engine facade does the same thing with one configuration:
+
+```python
+from mash_mix import MASHMix
+
+engine = MASHMix(language="bn-BD")
+lyrics = engine.lyrics("bangla song.mp3")
+engine.write(lyrics, "out", formats=["srt", "txt", "vtt", "lrc"])
+```
+
+## The stages
+
+| Stage | What happens | Why |
+|---|---|---|
+| 1. Decode | The file is decoded to mono float32 at 16 kHz | Every model wants the same format, and the resampling happens once |
+| 2. Separate (optional) | The vocal stem is pulled out of the mix | The model hears the voice, not the instruments |
+| 3. Pick a backend | The registry returns the first available speech to text backend | One call works on every platform |
+| 4. Chunk | The audio is split into 30 second windows with 2 seconds of overlap | The overlap keeps a word that straddles a boundary from being lost |
+| 5. Recognise | Each chunk is transcribed with word timestamps and VAD on | VAD skips the silent passages instead of hallucinating lyrics over them |
+| 6. Shift | Every timestamp is moved by the chunk offset | The times are absolute in the original track, not in the chunk |
+| 7. Clean | `clean_asr_text` removes bracket noise and repeated punctuation | A model that hears an instrumental often writes `[music]` or `[আড়ালা]` |
+| 8. Normalise | Bangla text goes through `normalize_bangla` | The nukta letters and the digits end up in one canonical form |
+| 9. Repetition control | Consecutive identical lines beyond `max_repeats` are dropped | A decoder that loops on a sung phrase repeats it for the rest of the track |
+| 10. Merge short lines | A fragment under 1.2 seconds joins the next line when the gap is under 0.8 seconds | A phrase split in two reads badly in a subtitle |
+| 11. Detect the region | The marker vote runs over the joined text | The result carries `bn-BD` or `bn-IN` and the evidence behind it |
+| 12. Export | SRT, TXT, VTT, LRC or JSON is written | The format you need for the player you use |
+
+The whole thing runs with no size limit, because the audio is processed chunk by chunk rather than as one array.
+
+## Separation options
+
+| Setting | Model | What happens | When to use it |
+|---|---|---|---|
+| Off, the default | none | The mix is recognised as it is | A clean vocal recording, a spoken track, or a quick first look |
+| `--separate-vocals` | `htdemucs` | The track is split with Demucs and the vocal stem is recognised | A dense modern mix where the voice competes with the instruments |
+| `--separate-vocals` | `mid_side` | A dependency free mid side split | When you cannot install Demucs, or you want a fast rough split |
+
+```bash
+mash-mix lyrics "song.mp3" -o out --separate-vocals --separation-model htdemucs
+```
+
+```bash
+mash-mix lyrics "song.mp3" -o out --separate-vocals --separation-model mid_side
+```
+
+The cost is time and disk. Demucs needs an 80 M download and roughly as much memory as the audio, and it runs before the recognition, so a four minute song takes noticeably longer.
+
+Separation also has a downside: a separation model can introduce artefacts of its own, and it can drop quiet consonants. If the mix is already clean, separating it can make the result worse. Try both and keep the better one.
+
+A separation failure is not fatal. The pipeline catches the error and carries on with the original mix.
+
+## Getting a better result
+
+### The language tag
+
+Set it. The default is `bn-BD`, and a wrong tag costs accuracy.
+
+| Tag | When |
+|---|---|
+| `bn-BD` | Bangladeshi Bangla |
+| `bn-IN` | Indian Bengali |
+| `bn` | Let the model choose |
+| none | Let the model detect, and the regional detector label the result |
+
+```bash
+mash-mix lyrics "song.mp3" -o out --lang bn-IN
+```
+
+### Hotwords
+
+A hotword is a word or phrase the model is nudged towards. Use it for names, rare words and anything the model keeps getting wrong.
+
+```bash
+mash-mix lyrics "song.mp3" -o out --hotword "কবিতা" --hotword "টুকু" --hotword "MASH"
+```
+
+The hotwords are folded into the decoder prompt, so they work even on the backends that do not have a separate hotword argument.
+
+### The initial prompt
+
+An initial prompt gives the model the style and the subject of the song, which sharpens the decoder.
+
+```bash
+mash-mix lyrics "song.mp3" -o out --prompt "একটি বাংলা গানের গান, ভালোবাসার বিষয়"
+```
+
+A prompt in the target language works better than a prompt in English.
+
+### The chunk size
+
+The default is 30 seconds with 2 seconds of overlap.
+
+| Setting | Effect |
+|---|---|
+| A shorter chunk, say 15 seconds | More context per unit of work, but the model has less history to work with and a chorus can be split badly |
+| A longer chunk, say 60 seconds | More context for the decoder, but more memory and more risk of a loop |
+| A bigger overlap, say 4 seconds | Fewer words lost at a boundary, at the cost of some duplicated work |
+
+```bash
+mash-mix lyrics "song.mp3" -o out --chunk-seconds 20 --overlap-seconds 4
+```
+
+### Separating the vocals
+
+Covered above. Use it when the voice is fighting with the mix.
+
+### The repetition control
+
+`--max-repeats` is how many consecutive identical lines are kept before the rest are dropped. The default of 2 keeps a genuine repeated chorus line and removes a decoding loop.
+
+```bash
+mash-mix lyrics "song.mp3" -o out --max-repeats 1
+```
+
+Lower it to 1 if the model still loops, raise it to 3 if a real chorus is being cut.
+
+## The output formats
+
+The same lyric lines in four formats.
+
+### SRT
+
+The SubRip subtitle format. The format the lyric download button produces.
+
+```
+1
+00:00:00,000 --> 00:00:02,500
+প্রথম লাইন
+
+2
+00:00:02,500 --> 00:00:05,125
+দ্বিতীয় লাইন
+```
+
+Timestamps are `HH:MM:SS,mmm`, the cues are numbered from 1, and there is a blank line between the cues.
+
+### TXT
+
+The plain text, one line per lyric line, with no timestamps.
+
+```
+প্রথম লাইন
+দ্বিতীয় লাইন
+```
+
+### VTT
+
+The WebVTT format. The same as SRT with a header and dot separated timestamps.
+
+```
+WEBVTT
+1
+00:00:00.000 --> 00:00:02.500
+প্রথম লাইন
+
+2
+00:00:02.500 --> 00:00:05.125
+দ্বিতীয় লাইন
+```
+
+With a title, the header carries a NOTE block:
+
+```
+WEBVTT
+NOTE
+Title: Kobita tuku
+```
+
+### LRC
+
+The karaoke format. The timestamp is in brackets and the line follows it directly.
+
+```
+[00:00.00]প্রথম লাইন
+[00:02.50]দ্বিতীয় লাইন
+```
+
+The LRC timestamp is in minutes, seconds and hundredths.
+
+### JSON
+
+The full result object, for a program that wants the timings and the metadata.
+
+```json
+{
+  "text": "প্রথম লাইন\nদ্বিতীয় লাইন",
+  "language": "bn-BD",
+  "duration": 214.3,
+  "title": "Kobita tuku",
+  "artist": "MASH",
+  "backend": "faster-whisper",
+  "model": "large-v3",
+  "elapsed": 61.8,
+  "lines": [
+    {"start": 0.0, "end": 2.5, "text": "প্রথম লাইন", "speaker": null, "probability": null}
+  ],
+  "meta": {"chunks": 8, "dialect": "dhaka", "script": "bangla"}
+}
+```
+
+### Line wrapping
+
+A subtitle line is wrapped at 42 characters and 2 lines, on word boundaries. A single word longer than the limit is split by character, because Bangla words can be long.
+
+```
+এটি একটি বেশ লম্বা বাংলা লাইন
+যা সাবটাইটেলের জন্য দুই লাইনে
+ভাঙা উচিত
+```
+
+## Troubleshooting
+
+### No lyrics came back
+
+| Cause | Fix |
+|---|---|
+| No speech to text backend is installed | `mash-mix doctor`, then install the `stt` extra |
+| The audio is too quiet or the voice is buried in the mix | Add `--separate-vocals` |
+| The language tag is wrong | Try `--lang bn-BD` and `--lang bn-IN` |
+| The file is not really audio | Check it plays. The doctor prints the ffmpeg version |
+| The song has no vocals at all | Nothing to extract. The detector reports no speech |
+
+The result object tells you what happened even when it is empty:
+
+```python
+result = engine.lyrics("song.mp3")
+print(result.meta["chunks"])       # how many chunks were processed
+print(result.meta["evidence"])     # the regional detection evidence
+print(result.backend, result.model)
+```
+
+### The language came back wrong
+
+The model returned the wrong language, or the region detector voted for the wrong side.
+
+| Cause | Fix |
+|---|---|
+| The tag was not set | Pass `--lang bn-BD` or `--lang bn-IN` |
+| The text is short | The detector scales its confidence by the length of the text, so a short line is never fully confident |
+| The markers are unusual | Look at `result.meta["evidence"]`. It lists the markers that produced the call |
+
+The detection is explainable on purpose. Read the evidence and you can see which word tipped it.
+
+### The same line repeats over and over
+
+That is a decoding loop, which happens when the model hears a phrase it cannot resolve.
+
+| Fix | Effect |
+|---|---|
+| `--max-repeats 1` | Drops the repeats sooner |
+| `--separate-vocals` | The model hears a cleaner voice and loops less |
+| A shorter `--chunk-seconds` | A loop inside one chunk does not spread as far |
+| `--hotword` | Naming the real lyric steers the decoder away from the loop |
+
+### The timestamps drift
+
+The times are the model's word timings, so they drift when the model mishears the length of a phrase.
+
+| Fix | Effect |
+|---|---|
+| A shorter `--chunk-seconds` | Less time for the drift to accumulate inside one chunk |
+| `--separate-vocals` | The word boundaries are easier to find in a clean vocal |
+| A larger model, such as `large-v3` | Better word timings, not only better words |
+| Word timestamps on | They are on by default in the lyric pipeline |
+
+### The music is too loud
+
+| Fix | Effect |
+|---|---|
+| `--separate-vocals --separation-model htdemucs` | The best separation available here |
+| `--separation-model mid_side` | A quick, dependency free split |
+| A larger model | A stronger model copes with a worse mix |
+| A hotword for the key word | Steers the decoder through the noise |
+
+### The Bangla comes out in the wrong script
+
+| Cause | Fix |
+|---|---|
+| The text was romanised | `mash_mix.lang.banglish_to_bangla` converts it, but the recognition is what needs fixing |
+| A typo in the source | Fix the file, then run again |
+| A mixed language song | Pass a hotword in the Bangla script so the decoder sees the script it expects |
+
+## The accuracy ceiling
+
+Be honest about this: a speech model trained on spoken voice is being asked to transcribe a sung voice, and it is outside its training distribution.
+
+- **Singing changes the acoustics.** Pitch, duration and vowel length are all stretched, so a model that was tuned on speech makes timing errors.
+- **The melody carries the words, not the consonants.** A trained singer can be understood from the tune and the context even when the consonants are barely there. A model has neither.
+- **Bangla is a small training share.** Even the large Whisper models saw far less Bangla speech than English speech, and far less Bangla singing than either.
+- **A dense mix makes it worse.** The voice competes with the instruments for the model's attention.
+
+So the honest expectation is this:
+
+- On a clean studio vocal, a large model with the language tag set gets most of the words right. Expect to fix some.
+- On a dense mix, separation helps a great deal and the result still needs editing.
+- On a live recording with a band, expect a rough transcript that identifies the song and its structure, not a publishable lyric sheet.
+- The timings are the more reliable part. The words are the hard part.
+
+The way to get closer is the same every time: set the language tag, separate the vocals, use the largest model the hardware allows, give the decoder the right hotwords, and be ready to correct the output by hand.
+
+That is the honest state of running a speech model on a sung voice in 2026. The pipeline makes the result usable. It does not make it perfect.
+
+---
+
+Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

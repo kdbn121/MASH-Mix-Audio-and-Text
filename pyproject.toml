@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: MIT | Copyright (c) 2026 MASH (Khaled Bhuiyan)
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mash-mix-audio-and-text"
+version = "0.1.0"
+description = "Cross-platform speech and text engine: analysis, extraction, song-to-lyric, TTS, STT and STS, with first-class Bangla (bn-BD, bn-IN) support."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "MASH (Khaled Bhuiyan)" }]
+keywords = [
+  "bangla",
+  "bengali",
+  "bn-bd",
+  "bn-in",
+  "tts",
+  "stt",
+  "speech-to-speech",
+  "lyrics",
+  "audio",
+  "cross-platform",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: Bengali",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+dependencies = [
+  "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+# Speech to text. whisper and faster-whisper are pure-python-ish and cross platform.
+stt = [
+  "openai-whisper>=20231117",
+  "faster-whisper>=1.0.0",
+  "soundfile>=0.12",
+  "torch>=2.0",
+  "torchaudio>=2.0",
+]
+# Bangla TTS stacks.
+tts = [
+  "torch>=2.0",
+  "torchaudio>=2.0",
+  "soundfile>=0.12",
+  "transformers>=4.40",
+  "num2words",
+]
+# Edge and mobile deployment (Android via Termux, iOS via CoreML tooling, laptops without CUDA).
+edge = [
+  "onnxruntime>=1.16",
+  "sherpa-onnx>=1.9",
+]
+# Server and web UI.
+server = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+]
+# Optional analysis extras.
+analysis = [
+  "librosa>=0.10",
+  "soundfile>=0.12",
+]
+# Everything a desktop developer usually wants.
+full = [
+  "mash-mix-audio-and-text[stt,tts,edge,server,analysis]",
+]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+mash-mix = "mash_mix.cli:main"
+mash-mix-doctor = "mash_mix.doctor:main"
+
+[project.urls]
+Homepage = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text"
+Repository = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text"
+Issues = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mash_mix = ["server/static/*", "resources/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "slow: marks tests that need model weights or network access",
+  "model: marks tests that download or load real model weights",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# UP006, UP007, UP035 and UP045 rewrite the typing imports into the PEP 585 and
+# PEP 604 forms. The package supports Python 3.9 and uses those forms at
+# runtime in a few places, where the union syntax is not available.
+ignore = ["E501", "B008", "UP006", "UP007", "UP035", "UP045"]
