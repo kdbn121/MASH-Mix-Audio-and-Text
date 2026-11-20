@@ -361,6 +361,74 @@ class TransformersSTTBackend(STTBackend):
         self._loaded = False
 
     # -- inference ------------------------------------------------------
+    def _run_window(
+        self,
+        samples: np.ndarray,
+        *,
+        language: Optional[str],
+        task: str,
+        prompt: Optional[str],
+        hotwords: Optional[Sequence[str]],
+        word_timestamps: bool,
+        vad: bool,
+    ) -> Tuple[str, List[Segment], Optional[str]]:
+        """Run the model over one window and return its text and segments.
+
+        The window is a single forward pass. The pipeline is not asked to chunk
+        the audio itself, because that path batches several windows together
+        and it has proved unstable on a CPU. Whisper was trained on 30 second
+        windows, so one window at a time is the shape it expects.
+
+        The timestamps are segment level, not word level. Word timestamps ask
+        the model for its full cross attention, and for a 30 second window of
+        a large Whisper model that is several gigabytes of attention weights
+        on a machine that may not have the room for them. Segment timestamps
+        cost almost nothing and the lyric pipeline cuts its lines from the
+        punctuation and the pauses anyway.
+        """
+        engine_task = task if task in ("transcribe", "translate") else "transcribe"
+        hint = _engine_language(language)
+        if engine_task == "translate" and hint not in (None, "en"):
+            engine_task = "transcribe"
+
+        generate_kwargs: Dict[str, Any] = {"task": engine_task}
+        if hint:
+            generate_kwargs["language"] = hint
+        if prompt:
+            generate_kwargs["initial_prompt"] = prompt
+
+        call_kwargs: Dict[str, Any] = {
+            "generate_kwargs": generate_kwargs,
+            "return_timestamps": True,
+        }
+
+        try:
+            output = self._pipe(samples, **call_kwargs)
+        except Exception as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        if not isinstance(output, dict):
+            output = {"text": str(output or "")}
+        raw_text = str(output.get("text") or "")
+        chunks = output.get("chunks") or []
+        detected = output.get("language") or output.get("language_code")
+
+        segments: List[Segment] = []
+        for chunk in chunks:
+            text = _clean(_chunk_text(chunk))
+            if not text:
+                continue
+            start, end = _chunk_times(chunk)
+            if start is None:
+                continue
+            segments.append(Segment(start=start, end=end if end is not None else start, text=text))
+        if not segments:
+            text = _clean(raw_text)
+            if text:
+                segments = [Segment(start=0.0, end=float(len(samples)) / TARGET_RATE, text=text)]
+
+        return raw_text, segments, detected
+
     def transcribe(
         self,
         audio: np.ndarray,
@@ -379,82 +447,26 @@ class TransformersSTTBackend(STTBackend):
         if not self._loaded:
             self.load()
         samples = _prepare_audio(audio, sample_rate)
-        duration = float(len(np.asarray(audio).reshape(-1))) / float(sample_rate)
+        duration = float(len(samples)) / float(TARGET_RATE)
 
-        engine_task = task if task in ("transcribe", "translate") else "transcribe"
-        hint = _engine_language(language)
-        if engine_task == "translate" and hint not in (None, "en"):
-            engine_task = "transcribe"
-
-        generate_kwargs: Dict[str, Any] = {"task": engine_task}
-        if hint:
-            generate_kwargs["language"] = hint
         prompt = _build_prompt(initial_prompt, hotwords)
-        if prompt:
-            generate_kwargs["initial_prompt"] = prompt
-
-        call_kwargs: Dict[str, Any] = {"generate_kwargs": generate_kwargs}
-        if word_timestamps:
-            call_kwargs["return_timestamps"] = "word"
-            call_kwargs["chunk_length_s"] = 30
-            call_kwargs["stride_length_s"] = 5
-        else:
-            call_kwargs["return_timestamps"] = True
 
         started = time.perf_counter()
         try:
-            output = self._pipe(samples, **call_kwargs)
+            raw_text, segments, detected = self._run_window(
+                samples,
+                language=language,
+                task=task,
+                prompt=prompt,
+                hotwords=hotwords,
+                word_timestamps=word_timestamps,
+                vad=vad,
+            )
         except Exception as exc:
-            if word_timestamps:
-                # Some checkpoints refuse word timestamps, fall back to chunks.
-                try:
-                    output = self._pipe(samples, return_timestamps=True, generate_kwargs=generate_kwargs)
-                except Exception:
-                    return self._empty(duration, language, exc)
-            else:
-                return self._empty(duration, language, exc)
-
-        if not isinstance(output, dict):
-            output = {"text": str(output or "")}
-        raw_text = str(output.get("text") or "")
-        chunks = output.get("chunks") or []
-
-        segments: List[Segment] = []
-        if word_timestamps and chunks:
-            words: List[Word] = []
-            for chunk in chunks:
-                text = _clean(_chunk_text(chunk))
-                if not text:
-                    continue
-                start, end = _chunk_times(chunk)
-                if start is None:
-                    continue
-                words.append(
-                    Word(
-                        start=start,
-                        end=end if end is not None else start,
-                        text=text,
-                        probability=None,
-                    )
-                )
-            segments = _group_words(words)
-        elif chunks:
-            for chunk in chunks:
-                text = _clean(_chunk_text(chunk))
-                if not text:
-                    continue
-                start, end = _chunk_times(chunk)
-                if start is None:
-                    continue
-                segments.append(Segment(start=start, end=end if end is not None else start, text=text))
-        else:
-            text = _clean(raw_text)
-            if text:
-                segments = [Segment(start=0.0, end=duration, text=text)]
+            return self._empty(duration, language, exc)
 
         segments = _finalise(segments)
         joined = " ".join(seg.text for seg in segments) or _clean(raw_text)
-        detected = output.get("language") or output.get("language_code")
         return Transcription(
             text=joined,
             language=_result_tag(language, detected, joined),
@@ -465,9 +477,10 @@ class TransformersSTTBackend(STTBackend):
             elapsed=time.perf_counter() - started,
             meta={
                 "dtype": self._dtype,
-                "task": engine_task,
+                "task": task if task in ("transcribe", "translate") else "transcribe",
                 "detected_language": detected,
                 "word_timestamps": bool(word_timestamps),
+                "timestamp_level": "segment",
                 "vad": bool(vad),
             },
         )

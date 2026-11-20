@@ -17,7 +17,7 @@ makes the difference:
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Tuple
 
 from ..types import AudioBuffer, LyricLine, LyricsResult, Segment
 from ._common import Timer, pick_backend, to_buffer, to_stereo_buffer
@@ -48,6 +48,7 @@ def _merge_short_lines(
     *,
     min_duration: float = 1.2,
     max_gap: float = 0.8,
+    max_chars: int = 45,
 ) -> List[LyricLine]:
     """Join very short fragments with the next line when they belong together."""
     merged: List[LyricLine] = []
@@ -56,7 +57,8 @@ def _merge_short_lines(
             previous = merged[-1]
             duration = previous.end - previous.start
             gap = line.start - previous.end
-            if duration < min_duration and gap <= max_gap:
+            combined = len(previous.text) + 1 + len(line.text)
+            if duration < min_duration and gap <= max_gap and combined <= max_chars:
                 previous.text = f"{previous.text} {line.text}".strip()
                 previous.end = max(previous.end, line.end)
                 continue
@@ -99,24 +101,147 @@ def _is_repetition_loop(text: str, threshold: int = 6) -> bool:
     return distinct <= max(2, len(words) // 4)
 
 
+def _is_character_loop(text: str, min_repeats: int = 3) -> bool:
+    """True when a run of characters repeats itself over and over.
+
+    Some failures are not word shaped. A model can emit a syllable that is
+    spelled with several letters, for example ``ma-th-ya-lam-ya-lam``, and
+    the word level filter never sees a repeated word. This looks for a short
+    block of characters that repeats back to back.
+
+    A short block, three characters or fewer, is a syllable and three repeats
+    of it are already a loop. A longer block has to cover at least half of the
+    text, so a line that merely mentions the same sound twice is not thrown
+    away.
+    """
+    compact = "".join(text.split())
+    if len(compact) < 12:
+        return False
+    needed = max(12, int(len(compact) * 0.5))
+    for size in range(1, 25):
+        if len(compact) < size * min_repeats:
+            break
+        for start in range(0, len(compact) - size * min_repeats + 1):
+            block = compact[start : start + size]
+            repeats = 1
+            cursor = start + size
+            while compact.startswith(block, cursor):
+                repeats += 1
+                cursor += size
+            if repeats < min_repeats:
+                continue
+            if size <= 3 or cursor - start >= needed:
+                return True
+    return False
+
+
+def _has_replacement_char(text: str) -> bool:
+    """True when the text carries the unicode replacement character.
+
+    A broken decode leaves U+FFFD in the string. No lyric contains it, so the
+    line is treated as noise.
+    """
+    return "\ufffd" in text
+
+
+#: Punctuation that closes a phrase inside one recognised segment.
+_SENTENCE_BREAK = ("\u0964", "\u0965", "?", "!", ".", "\u2026")
+#: Punctuation that marks a smaller pause inside a phrase.
+_CLAUSE_BREAK = (",", ";", ":", "\u0963")
+#: A clause break only splits a line once this much text has accumulated.
+_CLAUSE_MIN_CHARS = 18
+
+
+def _ends_with(text: str, marks: Sequence[str]) -> bool:
+    """True when the text ends with one of the given punctuation marks."""
+    stripped = text.rstrip()
+    if not stripped:
+        return False
+    return stripped[-1] in marks
+
+
+def _split_text_on_punctuation(text: str, max_chars: int = 55) -> List[Tuple[str, int, int]]:
+    """Cut a run of text into pieces at the punctuation it carries.
+
+    Returns a list of ``(piece, start_offset, end_offset)`` where the offsets
+    are character positions in the original text, so the caller can give each
+    piece a share of the time the whole run took.
+
+    This is the path used when the recogniser gives segment timings only. A
+    sung line carries almost no pause between words, so the punctuation the
+    model wrote is the better place to cut.
+    """
+    pieces: List[Tuple[str, int, int]] = []
+    start = 0
+    length = 0
+    for index, char in enumerate(text):
+        if _ends_with(text[index : index + 1], _SENTENCE_BREAK):
+            piece = text[start : index + 1].strip()
+            if piece:
+                pieces.append((piece, start, index + 1))
+            start = index + 1
+            length = 0
+            continue
+        if _ends_with(text[index : index + 1], _CLAUSE_BREAK) and length >= _CLAUSE_MIN_CHARS:
+            piece = text[start : index + 1].strip()
+            if piece:
+                pieces.append((piece, start, index + 1))
+            start = index + 1
+            length = 0
+            continue
+        length += 1
+        if length >= max_chars and char == " ":
+            piece = text[start : index + 1].strip()
+            if piece:
+                pieces.append((piece, start, index + 1))
+            start = index + 1
+            length = 0
+    tail = text[start:].strip()
+    if tail:
+        pieces.append((tail, start, len(text)))
+    return pieces
+
+
+def _split_segment_without_words(seg: Segment, max_chars: int = 55) -> List[Segment]:
+    """Cut a segment that carries no word timings into timed lyric lines."""
+    pieces = _split_text_on_punctuation(seg.text, max_chars=max_chars)
+    if len(pieces) <= 1:
+        return [seg]
+    total = max(1, len(seg.text))
+    span = max(0.0, float(seg.end) - float(seg.start))
+    out: List[Segment] = []
+    for piece, begin, end in pieces:
+        start = float(seg.start) + span * (begin / total)
+        stop = float(seg.start) + span * (end / total)
+        if stop <= start:
+            stop = start + 0.01
+        out.append(Segment(start=start, end=stop, text=piece))
+    return out
+
+
 def _split_on_pauses(
     segments: Sequence[Segment],
     *,
     gap: float = 0.35,
     max_chars: int = 55,
 ) -> List[Segment]:
-    """Break long recognised segments into lyric lines at the pauses.
+    """Break long recognised segments into lyric lines.
 
     A recogniser returns one segment per utterance, and on a song that is one
     long run of words for a whole verse. Karaoke timing needs the lines, so
-    the segment is cut where the singer breathes, and where a line would grow
-    past a comfortable length.
+    the segment is cut where the singer breathes, where the recogniser wrote a
+    full stop, and where a line would grow past a comfortable length.
+
+    A sung line rarely carries a long pause between words, so the punctuation
+    written by the model is the more useful signal here. A clause break only
+    splits a line once enough text has gathered, which keeps short clauses
+    attached to the phrase they belong to.
     """
     out: List[Segment] = []
     for seg in segments:
         words = list(seg.words or [])
         if not words:
-            out.append(seg)
+            out.extend(_split_segment_without_words(seg, max_chars=max_chars))
             continue
         group: List[Any] = []
         length = 0
@@ -130,6 +255,14 @@ def _split_on_pauses(
                     length = 0
             group.append(word)
             length += len(word.text) + 1
+            if _ends_with(word.text, _SENTENCE_BREAK):
+                out.append(_segment_from_words(group))
+                group = []
+                length = 0
+            elif _ends_with(word.text, _CLAUSE_BREAK) and length >= _CLAUSE_MIN_CHARS:
+                out.append(_segment_from_words(group))
+                group = []
+                length = 0
         if group:
             out.append(_segment_from_words(group))
     return out
@@ -296,12 +429,18 @@ def extract_lyrics(
     bangla_requested = is_bangla(language) if language else False
     repaired = 0
     dropped_loops = 0
+    dropped_noise = 0
     collapsed = 0
     for seg in _split_on_pauses(segments):
         text = clean_asr_text(seg.text)
         if not text:
             continue
-        if _is_repetition_loop(text):
+        if _has_replacement_char(text):
+            # A broken decode leaves a replacement character in the string.
+            # No lyric contains one, so the line is noise.
+            dropped_noise += 1
+            continue
+        if _is_repetition_loop(text) or _is_character_loop(text):
             # The recogniser fell into a loop on this passage. It carries no
             # lyric, so the line goes.
             dropped_loops += 1
@@ -367,6 +506,7 @@ def extract_lyrics(
             "sample_rate": buffer.sample_rate,
             "channels": buffer.channels,
             "dropped_loops": dropped_loops,
+            "dropped_noise": dropped_noise,
             "collapsed_repeats": collapsed,
         },
     )

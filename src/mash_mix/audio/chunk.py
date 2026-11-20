@@ -142,16 +142,20 @@ def chunk_audio(
     index = 0
     tolerance = max(1.0, min(5.0, length / 4.0))
     while position < duration:
-        target = position + length
+        limit = position + length
+        target = limit
         if target >= duration:
             boundary = duration
         else:
             # Prefer a speech pause close to the target so a word is not cut.
+            # The pause has to sit inside the window, because a speech model
+            # that was trained on fixed windows only hears the first window of
+            # anything longer.
             pause = _nearest_pause(pauses, target, tolerance) if pauses else None
-            if pause is not None:
-                boundary = min(max(pause, position + length / 2.0), duration)
+            if pause is not None and pause <= limit:
+                boundary = max(pause, position + length / 2.0)
             else:
-                boundary = target
+                boundary = limit
         start_sample = int(round(position * rate))
         end_sample = int(round(boundary * rate))
         start_sample = max(0, min(start_sample, total))

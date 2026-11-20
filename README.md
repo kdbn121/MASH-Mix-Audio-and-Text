@@ -159,14 +159,15 @@ instrumentals, and split words across a chorus. The pipeline handles each of tho
 | Instrumentals get turned into words | Voice activity detection skips silent passages |
 | The mix hides the voice | Optional vocal separation, `htdemucs` or the dependency free `mid_side` |
 | The model loops on a sung phrase | Consecutive duplicate lines are collapsed |
-| The model writes the same syllable fifty times | A line that is one repeated word is dropped |
+| The model writes the same syllable fifty times | A line that repeats is dropped, word by word and character by character |
 | A chorus repeats the same line | Duplicate detection keeps the first occurrence and drops the rest |
 | The model answers in Devanagari | Script repair maps it back to Bangla script |
 | The model answers in romanised Bangla | The script layer writes it out in Bangla |
 | The recogniser cuts through a sustained note | The engine's own voice activity detection is off for lyrics |
 | Bangla needs different preparation | Bangla normalisation, then a Bangla clean pass on the output |
 | Words get split mid phrase | Short fragments merge with the next line when the gap is small |
-| A verse comes back as one long line | Lines are cut at the pauses, using the word timings |
+| A verse comes back as one long line | Lines are cut at the punctuation and at the pauses |
+| A broken decode leaves a replacement character | That line is dropped, no lyric contains one |
 | The base model writes Bangla badly | Use a Bangla fine tune, `mozilla-ai/whisper-large-v3-turbo-bn` |
 
 ### The model matters most
@@ -196,8 +197,43 @@ python scripts/lyrics_eval.py "song.mp3" "true-lyrics.txt" --backend transformer
   --model mozilla-ai/whisper-large-v3-turbo-bn
 ```
 
-It prints the word error rate, the share of true lines that were found, and every line
-that was missed, so a change can be measured rather than guessed.
+It prints three numbers and every line that was missed, so a change can be measured
+rather than guessed.
+
+| Number | What it measures |
+|---|---|
+| Word error rate | every word in the transcript against every word in the true lyric |
+| Line recall | true lines that came back as one whole line |
+| Content recall | true lines found somewhere in the transcript, wherever the line breaks fall |
+
+Content recall is the one to read. The line breaks in a transcript are decided by
+the segmenter, not by the recogniser, so a lyric that is correct but written as one
+long line would score badly on line recall and well on content recall.
+
+#### A measured song
+
+The song *Dol Dol Doloni* by the folk group Paban, 4 minutes 22 seconds, with the
+real lyric file as the truth, on a CPU with no graphics card:
+
+| Setup | Word error rate | Content recall | Time |
+|---|---|---|---|
+| General model, no separation | 97.4 percent | 22.8 percent | 431 s |
+| Bangla fine tune, no separation | 77.1 percent | 64.9 percent | 367 s |
+| Bangla fine tune, vocals separated | 84.0 percent | 45.6 percent | 839 s |
+
+Two lessons are worth keeping.
+
+The Bangla fine tune is the whole game. The general model wrote 55 percent wrong
+words on Bengali, the fine tune writes about 10 percent.
+
+**Separation is not always better.** On this song the separated voice stem was worse
+than the raw mix, because Demucs also takes the room reverb and the backing vocal
+with it, and this song leans on both. Separation is offered as a choice, not as a
+default, and the number above is the reason it is not the default.
+
+The word error rate stays high even when the content recall is good, because the
+true lyric file lists the chorus nine times and a transcript that catches it four
+times is already short of the file, not wrong.
 
 ---
 

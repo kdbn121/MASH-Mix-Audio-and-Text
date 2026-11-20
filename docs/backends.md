@@ -117,6 +117,8 @@ Strengths: the widest model choice, so it is the way to reach a Bangla specialis
 
 Limits: the largest dependency. On a CPU the model runs in `bfloat16`, which is about three times faster than `float32` and gives the same text.
 
+The audio is sent to the model one 30 second window at a time, and the timestamps that come back are segment level rather than word level. Word timestamps would ask the model for its full cross attention, and for a 30 second window of a large Whisper model that is several gigabytes of attention weights, which is more than a small machine has to give. The lyric pipeline cuts its lines from the punctuation and the pauses, so it does not need word timings.
+
 ```python
 result = transcribe(
     "interview.wav",

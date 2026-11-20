@@ -4,6 +4,56 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.1.2] - 2026-11-20
+
+Vocal separation that actually runs, and lyric lines that follow the song.
+
+### Added
+
+- `scripts/lyrics_eval.py` now reports a **content recall** figure next to the
+  line by line recall. The line by line measure punishes the segmenter for
+  the way it cut the transcript, while the content measure asks the question
+  that matters: was this true line transcribed at all, wherever the line
+  breaks happen to fall.
+- A character level repetition filter. A model can repeat a syllable that is
+  spelled with several letters, and the word level filter never saw a repeated
+  word, so the broken line used to reach the output.
+- A test file for the lyric quality filters, the line splitter and the scorer.
+
+### Changed
+
+- The `transformers` backend now runs the model one window at a time instead of
+  asking the pipeline to batch several windows together. The batched path proved
+  unstable on a CPU and took the whole process down with it.
+- The `transformers` backend returns segment level timestamps instead of word
+  level ones. Word timestamps ask the model for its full cross attention, and for
+  a 30 second window of a large Whisper model that is several gigabytes of
+  attention weights. The lyric pipeline cuts its lines from the punctuation and
+  the pauses, so it does not need them.
+- Lyric lines are cut at the punctuation the model wrote, not only at the
+  pauses. A sung line carries almost no pause between words, so the full stop
+  and the comma are the more useful signal. A clause break only splits a line
+  once enough text has gathered, which keeps short clauses with the phrase
+  they belong to.
+- A line that carries the unicode replacement character is dropped. A broken
+  decode leaves U+FFFD in the string and no lyric contains one.
+- A chunk is never longer than the window the model was trained on.
+
+### Fixed
+
+- **Vocal separation never ran.** The Demucs 4.x release changed the call
+  signature of `separate_tensor`, so the call failed, the failure was swallowed
+  and the error that reached the caller said the package was missing. Both the
+  4.x and the 3.x call styles are now supported, so `--separate-vocals` on a
+  song now returns the voice instead of the mix.
+- The separation model is released before the speech model is loaded, so a song
+  with separation no longer needs both networks in memory at the same time.
+- The lyric pipeline no longer crashes on a loud passage of a long song.
+
+[0.1.2]: https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/releases/tag/v0.1.2
+
+---
+
 ## [0.1.1] - 2026-11-20
 
 Song lyric accuracy, the Banglish option, and a visible file panel.

@@ -119,6 +119,51 @@ def _filter_stems(
     return selected
 
 
+def _release_memory() -> None:
+    """Ask the runtime and the accelerator to give back the memory they hold."""
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # pragma: no cover - torch is optional here
+        pass
+
+
+def _demucs_stems(separator: Any, tensor: Any) -> dict[str, np.ndarray] | None:
+    """Call demucs and return its stems for either version of the API.
+
+    demucs 4.x takes a ``(channels, samples)`` tensor and returns a tuple of
+    the original wave and a dictionary of stems. demucs 3.x took a batched
+    tensor and returned the dictionary directly. Both are supported here
+    because the call signature changed between the two releases.
+    """
+    try:
+        result = separator.separate_tensor(tensor)
+    except TypeError:
+        # demucs 3.x expects a batched tensor and has no sample rate argument.
+        result = separator.separate_tensor(tensor.unsqueeze(0))
+    if isinstance(result, tuple) and len(result) == 2:
+        produced = result[1]
+    else:
+        produced = result
+    if not isinstance(produced, dict) or not produced:
+        return None
+    stems: dict[str, np.ndarray] = {}
+    for name, value in produced.items():
+        array = value
+        if hasattr(array, "detach"):
+            array = array.detach().cpu().numpy()
+        array = np.asarray(array, dtype=np.float32)
+        while array.ndim > 2:
+            array = array[0]
+        stems[str(name).lower()] = array
+    return stems or None
+
+
 def _demucs_separate(
     audio: np.ndarray,
     sr: int,
@@ -140,26 +185,20 @@ def _demucs_separate(
         if work_rate != _MODEL_RATE:
             work = _resample.resample(stereo, work_rate, _MODEL_RATE)
             work_rate = _MODEL_RATE
-        tensor = torch.from_numpy(np.ascontiguousarray(work, dtype=np.float32)).unsqueeze(0)
+        tensor = torch.from_numpy(np.ascontiguousarray(work, dtype=np.float32))
         separator = _demucs_api.Separator(
             model=model, device=device if device else "cpu"
         )
-        output = separator.separate_tensor(tensor, progress=False)
-        if not output:
-            return None
-        source_map = output[0]
-        produced: dict[str, np.ndarray] = {}
-        for name, value in source_map.items():
-            array = value.detach().cpu().numpy()
-            array = np.asarray(array, dtype=np.float32)
-            if array.ndim == 3:
-                array = array[0]
-            if array.ndim == 1:
-                array = array[None, :]
-            if array.shape[0] > 1:
-                array = array.mean(axis=0)
-            produced[str(name).lower()] = array.astype(np.float32)
-        if not produced:
+        try:
+            produced = _demucs_stems(separator, tensor)
+        finally:
+            # The separator holds a whole neural network. It is released before
+            # the caller loads a speech model, so a song with separation does
+            # not need both networks in memory at the same time.
+            del separator
+            del tensor
+            _release_memory()
+        if produced is None:
             return None
         if work_rate != int(sr):
             from ..audio import resample as _resample

@@ -79,6 +79,63 @@ def similarity(a: str, b: str) -> float:
     return 1.0 - (levenshtein(sa, sb) / max(len(sa), len(sb)))
 
 
+def phrase_recall(
+    truth: Sequence[str],
+    hypothesis: Sequence[str],
+    *,
+    threshold: float = 0.7,
+) -> Tuple[List[Dict[str, object]], float]:
+    """Check whether every true line appears anywhere in the transcript.
+
+    Line by line alignment is the wrong measure for a song. The same lyric can
+    be transcribed as one long line or as four short ones, and that choice is
+    made by the segmenter, not by the recogniser. This measure asks the
+    content question instead: is this true line present somewhere in what was
+    transcribed, wherever the line breaks happen to fall?
+
+    A true line is counted as found when the closest window of transcript
+    words scores at least ``threshold`` on character similarity.
+    """
+    hyp_tokens: List[str] = []
+    hyp_owner: List[int] = []
+    for index, line in enumerate(hypothesis):
+        for token in tokens(line):
+            hyp_tokens.append(token)
+            hyp_owner.append(index)
+
+    rows: List[Dict[str, object]] = []
+    hits = 0
+    for index, true_line in enumerate(truth):
+        want = tokens(true_line)
+        best_score = 0.0
+        best_text = ""
+        if want and hyp_tokens:
+            width = len(want)
+            for start in range(0, max(1, len(hyp_tokens) - width + 1)):
+                window = hyp_tokens[start : start + width]
+                score = similarity(" ".join(window), true_line)
+                if score > best_score:
+                    best_score = score
+                    owner = hyp_owner[start]
+                    best_text = hypothesis[owner] if owner < len(hypothesis) else ""
+                if start + width >= len(hyp_tokens):
+                    break
+        ok = best_score >= threshold
+        if ok:
+            hits += 1
+        rows.append(
+            {
+                "index": index,
+                "truth": true_line,
+                "best": best_text,
+                "score": round(best_score, 3),
+                "match": ok,
+            }
+        )
+    recall = hits / len(truth) if truth else 0.0
+    return rows, recall
+
+
 def read_truth(path: Path) -> List[str]:
     """Read the truth file, keeping non empty lines and dropping the numbering."""
     out: List[str] = []
@@ -162,6 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     wer = word_error_rate(joined_hyp, joined_truth)
     rows, recall = match_lines(truth, hypothesis)
+    phrase_rows, phrase = phrase_recall(truth, hypothesis)
 
     print("=" * 66)
     print(f"audio   : {audio.name}")
@@ -170,9 +228,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"elapsed : {result.elapsed:.1f} s")
     print(f"lines   : {len(result.lines)} produced, {len(truth)} in the truth file")
     print(f"WER     : {wer * 100:.1f} %")
-    print(f"recall  : {recall * 100:.1f} % of true lines matched at 0.70 or better")
+    print(f"lines   : {recall * 100:.1f} % of true lines matched one to one at 0.70 or better")
+    print(f"content : {phrase * 100:.1f} % of true lines found somewhere in the transcript")
     print("=" * 66)
-    for row in rows:
+    for row in phrase_rows:
         mark = "OK  " if row["match"] else "MISS"
         print(f"{mark} {row['score']:.2f}  truth: {row['truth']}")
         if not row["match"]:
@@ -193,10 +252,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "elapsed": result.elapsed,
             "wer": wer,
             "line_recall": recall,
+            "content_recall": phrase,
             "lines_produced": len(result.lines),
             "lines_in_truth": len(truth),
             "meta": result.meta,
-            "lines": rows,
+            "lines": phrase_rows,
         }
         (out / "report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"

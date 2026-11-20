@@ -53,14 +53,16 @@ engine.write(lyrics, "out", formats=["srt", "txt", "vtt", "lrc"])
 | 2. Separate (optional) | The vocal stem is pulled out of the mix | The model hears the voice, not the instruments |
 | 3. Pick a backend | The registry returns the first available speech to text backend | One call works on every platform |
 | 4. Chunk | The audio is split into 30 second windows with 2 seconds of overlap | The overlap keeps a word that straddles a boundary from being lost |
-| 5. Recognise | Each chunk is transcribed with word timestamps and VAD on | VAD skips the silent passages instead of hallucinating lyrics over them |
+| 5. Recognise | Each chunk is transcribed with timestamps and VAD on | VAD skips the silent passages instead of hallucinating lyrics over them |
 | 6. Shift | Every timestamp is moved by the chunk offset | The times are absolute in the original track, not in the chunk |
 | 7. Clean | `clean_asr_text` removes bracket noise and repeated punctuation | A model that hears an instrumental often writes `[music]` or `[আড়ালা]` |
-| 8. Normalise | Bangla text goes through `normalize_bangla` | The nukta letters and the digits end up in one canonical form |
-| 9. Repetition control | Consecutive identical lines beyond `max_repeats` are dropped | A decoder that loops on a sung phrase repeats it for the rest of the track |
-| 10. Merge short lines | A fragment under 1.2 seconds joins the next line when the gap is under 0.8 seconds | A phrase split in two reads badly in a subtitle |
-| 11. Detect the region | The marker vote runs over the joined text | The result carries `bn-BD` or `bn-IN` and the evidence behind it |
-| 12. Export | SRT, TXT, VTT, LRC or JSON is written | The format you need for the player you use |
+| 8. Split into lines | The recognised run is cut at the full stops, the commas, the pauses and the length limit | A sung line carries almost no pause, so the punctuation the model wrote is the better signal |
+| 9. Drop the noise | A line that repeats itself, word by word or character by character, is dropped, and so is a line carrying a replacement character | A decoder that loses the plot writes the same syllable until it runs out of tokens |
+| 10. Normalise | Bangla text goes through `normalize_bangla` | The nukta letters and the digits end up in one canonical form |
+| 11. Repetition control | Consecutive identical lines beyond `max_repeats` are dropped | A decoder that loops on a sung phrase repeats it for the rest of the track |
+| 12. Merge short lines | A fragment under 1.2 seconds joins the next line when the gap is under 0.8 seconds | A phrase split in two reads badly in a subtitle |
+| 13. Detect the region | The marker vote runs over the joined text | The result carries `bn-BD` or `bn-IN` and the evidence behind it |
+| 14. Export | SRT, TXT, VTT, LRC or JSON is written | The format you need for the player you use |
 
 The whole thing runs with no size limit, because the audio is processed chunk by chunk rather than as one array.
 
@@ -182,8 +184,37 @@ python scripts/lyrics_eval.py "song.mp3" "true-lyrics.txt" \
 ```
 
 It reports the word error rate, the share of true lines that were found with a close
-match, and every line that was missed. The report is written as JSON when `--out-dir`
-is given, so two runs can be compared.
+match, the share of true lines found anywhere in the transcript, and every line that
+was missed. The report is written as JSON when `--out-dir` is given, so two runs can
+be compared.
+
+The three numbers answer different questions.
+
+| Number | Question it answers |
+|---|---|
+| Word error rate | How many words are wrong, over the whole song |
+| Line recall | Was this true line returned as one whole line |
+| Content recall | Was this true line transcribed at all, wherever the line breaks fall |
+
+Content recall is the fair one for a song, because the line breaks are the
+segmenter's decision and not the recogniser's. A lyric that is right but written as
+one long line scores badly on line recall and well on content recall.
+
+#### A measured song
+
+The song *Dol Dol Doloni*, 4 minutes 22 seconds, against its real lyric file, on a CPU
+with no graphics card:
+
+| Setup | Word error rate | Content recall | Time |
+|---|---|---|---|
+| General model, no separation | 97.4 percent | 22.8 percent | 431 s |
+| Bangla fine tune, no separation | 77.1 percent | 64.9 percent | 367 s |
+| Bangla fine tune, vocals separated | 84.0 percent | 45.6 percent | 839 s |
+
+The fine tune is the whole difference between the first row and the second. The third
+row is the interesting one: separation made this song worse, because Demucs took the
+room reverb and the backing vocal with the voice. That is why separation is a choice
+and not a default.
 
 ### The output script
 
