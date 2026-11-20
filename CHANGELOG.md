@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.1.4] - 2026-11-20
+
+The key of a file no longer depends on the sample rate of the file.
+
+### Fixed
+
+- The frequency of a spectral peak is now worked out from the bins around it,
+  with a parabola on the magnitude spectrum, instead of from the bin that
+  happens to hold the peak. A tone of 220 Hz falls between two bins of the
+  transform, and at the bottom of the range a semitone is narrower than a bin,
+  so the bin of a peak can be a quarter of a semitone away from the note it
+  belongs to. The key of a file no longer changes when the same recording is
+  at 22050 Hz or at 48000 Hz: a C major triad used to read as E minor at
+  48 kHz.
+
+### Added
+
+- Tests that read the same chord at 22050 Hz, 44100 Hz and 48000 Hz and expect
+  the same key at each of them, and a test that checks the chroma of a single
+  tone sits on the pitch class of that tone at every rate.
+
+### Changed
+
+- The version of the package in `pyproject.toml` and the version in the
+  package itself now agree. They had drifted apart.
+
 ## [0.1.3] - 2026-11-20
 
 The measurements of the attached file, and a page that fits every screen.

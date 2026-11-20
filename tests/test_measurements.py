@@ -201,6 +201,42 @@ def test_analyze_finds_the_key_of_a_c_major_triad():
     assert result.mode == "major"
 
 
+@pytest.mark.parametrize("rate", [22050, 44100, 48000])
+def test_the_key_does_not_depend_on_the_sample_rate(rate):
+    """The same chord is the same key at every sample rate.
+
+    The peak of a tone is worked out from the bins around it, so the answer
+    does not move when the tone lands between two bins in a different way.
+    Before that, a C major triad read as E minor at 48 kHz.
+    """
+    module = _analyze_module()
+    signal = _triad(130.81, minor=False, seconds=4.0, rate=rate)
+    result = module.analyze(signal, rate, backend="numpy")
+    assert result.key == "C"
+    assert result.mode == "major"
+
+
+@pytest.mark.parametrize("rate", [22050, 44100, 48000])
+def test_the_key_of_a_minor_triad_does_not_depend_on_the_sample_rate(rate):
+    """The same minor chord is the same key at every sample rate."""
+    module = _analyze_module()
+    signal = _triad(146.83, minor=True, seconds=4.0, rate=rate)
+    result = module.analyze(signal, rate, backend="numpy")
+    assert result.key == "D"
+    assert result.mode == "minor"
+
+
+def test_the_chroma_of_a_tone_sits_on_the_pitch_class_of_that_tone():
+    """One tone gives one pitch class, whatever the rate is."""
+    module = _analyze_module()
+    for rate in (22050, 44100, 48000):
+        signal = _tone(440.0, 4.0, rate, amplitude=0.5)
+        chroma = module._chroma(signal.astype(np.float32), rate)
+        assert chroma is not None
+        # A is the ninth semitone from C, so it sits at index nine.
+        assert int(np.argmax(chroma)) == 9
+
+
 def test_analyze_finds_the_tempo_of_a_click_track():
     """A click track at 120 beats a minute is read back near 120."""
     module = _analyze_module()

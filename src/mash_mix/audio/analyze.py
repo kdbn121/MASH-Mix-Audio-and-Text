@@ -353,13 +353,28 @@ def _chroma(x: np.ndarray, sr: int) -> np.ndarray | None:
         frequency = freqs[index]
         if frequency < 55.0 or frequency > 2200.0:
             continue
-        midi = 69.0 + 12.0 * math.log2(frequency / 440.0)
+        # The peak of a tone is worked out from the three bins around it, so
+        # the frequency of the tone does not depend on where it happens to
+        # fall between two bins. At the bottom of the range a semitone is
+        # narrower than a bin, and the raw bin of a peak can be a quarter of a
+        # semitone away from the tone it belongs to.
+        left = math.log(float(spectrum[index - 1]))
+        middle = math.log(value)
+        right = math.log(float(spectrum[index + 1]))
+        denominator = left - 2.0 * middle + right
+        shift = 0.0
+        if abs(denominator) > 1e-18:
+            shift = 0.5 * (left - right) / denominator
+            shift = max(-1.0, min(1.0, shift))
+        hz = (index + shift) * (float(sr) / n_fft)
+        peak = math.exp(middle - 0.25 * (left - right) * shift)
+        midi = 69.0 + 12.0 * math.log2(hz / 440.0)
         centre = float(round(midi))
         distance = abs(midi - centre)
         if distance > _CHROMA_WIDTH:
             continue
         weight = 1.0 - (distance / _CHROMA_WIDTH)
-        chroma[int(centre) % 12] += value * weight
+        chroma[int(centre) % 12] += peak * weight
     total = float(chroma.sum())
     if total <= 0:
         return None
