@@ -249,6 +249,24 @@ pip install 'mash-mix-audio-and-text[edge]'
 
 ## Running the HTTP API
 
+### The interface on any screen
+
+The web interface is one responsive page, so the same server serves a phone, a
+tablet, a laptop and a wide desktop, and any browser or web view on Windows, Linux,
+macOS, Android and iOS opens it without a change.
+
+| Screen | What changes |
+|---|---|
+| Under 900 pixels wide | The two columns become one, and the result panel comes under the audio panel |
+| Under 560 pixels wide | The label of a control sits above it, the measurements sit in two columns, and the details of the file stack |
+| Under 380 pixels wide | The measurements sit in one column |
+| A touch screen | The buttons, the links and the inputs grow to a tap target of 44 pixels |
+| The system asks for less motion | The progress bar and the transitions stop moving |
+| The page is printed | The drop box, the buttons and the licence line are left out, and the lyrics are not cut off |
+
+The page carries the colour scheme of the system, so it follows the dark mode of the
+machine, and it fits the safe area of a phone that has a notch or a rounded corner.
+
 ### On a phone
 
 The server is useful on a phone for a local tool, for example to check a recording before you upload it anywhere. Termux makes this straightforward.

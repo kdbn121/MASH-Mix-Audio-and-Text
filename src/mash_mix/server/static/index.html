@@ -2,7 +2,11 @@
 <html lang="bn">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0e1117" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="description" content="MASH-Mix-Audio-and-Text. Turn a song into lyrics, with audio measurements, pitch and tempo. Bangla first.">
 <title>MASH-Mix-Audio-and-Text | Song to lyric</title>
 <style>
   :root {
@@ -15,7 +19,13 @@
     --accent: #f3a9b4;
     --accent-2: #6ea8fe;
     --ok: #56d364;
+    --warn: #e3b341;
     --radius: 14px;
+    --gap: 20px;
+    --pad: clamp(16px, 3.2vw, 28px);
+    --font: "Noto Sans Bengali", "Hind Siliguri", "SolaimanLipi", "Kalpurush", "Nirmala UI",
+            "Bangla MN", "Bangla Sangam MN", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont,
+            "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -28,43 +38,50 @@
     }
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 16px/1.6 "Noto Sans Bengali", "Hind Siliguri", "Nirmala UI", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: clamp(15px, 0.55vw + 13.6px, 17px)/1.6 var(--font);
+    overflow-wrap: break-word;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: calc(env(safe-area-inset-top, 0px) + 22px) max(var(--pad), env(safe-area-inset-right, 0px))
+             calc(env(safe-area-inset-bottom, 0px) + 56px) max(var(--pad), env(safe-area-inset-left, 0px));
+  }
   header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
-  h1 { font-size: 26px; margin: 0; letter-spacing: -0.2px; }
-  .tag { color: var(--muted); font-size: 14px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px; }
-  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  h1 { font-size: clamp(20px, 1.4vw + 16px, 28px); margin: 0; letter-spacing: -0.2px; }
+  .tag { color: var(--muted); font-size: clamp(13px, 0.3vw + 12px, 14.5px); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); margin-top: clamp(16px, 2vw, 24px); }
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 20px;
+    padding: var(--pad);
+    min-width: 0;
   }
-  .card h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .card h2 { font-size: clamp(13px, 0.3vw + 12px, 15px); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   #drop {
     border: 1.5px dashed var(--line);
     border-radius: 12px;
-    padding: 30px 18px;
+    padding: clamp(22px, 4vw, 34px) 16px;
     text-align: center;
     cursor: pointer;
     transition: border-color .15s, background .15s;
   }
   #drop.hot { border-color: var(--accent); background: var(--panel-2); }
-  #drop .big { font-size: 17px; margin-bottom: 6px; }
-  #drop .small { color: var(--muted); font-size: 13px; }
+  #drop .big { font-size: clamp(15.5px, 0.5vw + 14px, 18px); margin-bottom: 6px; }
+  #drop .small { color: var(--muted); font-size: clamp(12.5px, 0.3vw + 11.6px, 13.5px); }
   /* The file input stays in the page for assistive technology and for tests,
      it is only taken out of sight. */
   #file {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
-  .chosen { margin-top: 12px; color: var(--muted); font-size: 13px; word-break: break-all; }
+  .chosen { margin-top: 12px; color: var(--muted); font-size: clamp(12.5px, 0.3vw + 11.8px, 13.5px); word-break: break-word; }
 
   /* the file that is attached, shown before anything is processed */
   .filecard {
@@ -76,45 +93,79 @@
   }
   .filecard[hidden] { display: none; }
   .filecard .fc-top { display: flex; gap: 12px; align-items: flex-start; }
+  .filecard .fc-min { flex: 1 1 auto; min-width: 0; }
   .filecard .fc-name {
-    flex: 1; font-weight: 700; font-size: 15px; word-break: break-all; line-height: 1.35;
+    font-weight: 700; font-size: clamp(14.5px, 0.4vw + 13.4px, 16px); word-break: break-word; line-height: 1.35;
   }
-  .filecard .fc-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .filecard .fc-sub { color: var(--muted); font-size: clamp(12px, 0.3vw + 11.4px, 13px); margin-top: 3px; word-break: break-word; }
   .badge {
     flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: .06em;
     text-transform: uppercase; padding: 3px 8px; border-radius: 999px;
-    background: rgba(110, 168, 254, .16); color: var(--accent-2);
+    background: rgba(110, 168, 254, .16); color: var(--accent-2); white-space: nowrap;
   }
   .badge.ready { background: rgba(86, 211, 100, .16); color: var(--ok); }
   .badge.busy { background: rgba(243, 169, 180, .16); color: var(--accent); }
+
+  /* the measurements, laid out like the MASH_SUNONA panel */
+  .fc-measure { margin-top: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .fc-measure[hidden] { display: none; }
+  .fc-measure-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px 14px;
+  }
+  .fc-measure-item { min-width: 0; }
+  .fc-measure-label {
+    display: block; color: var(--muted); font-size: clamp(11px, 0.25vw + 10.4px, 12px);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .fc-measure-value {
+    display: block; margin-top: 2px; font-size: clamp(13px, 0.35vw + 12.2px, 14.5px); font-weight: 650;
+    font-variant-numeric: tabular-nums; word-break: break-word;
+  }
+  .fc-measure-value.warn { color: var(--warn); }
+  .fc-measure-value.pending { color: var(--muted); font-weight: 500; }
+
+  /* own pitch and speed */
+  .fc-pitch { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .fc-pitch[hidden] { display: none; }
+  .fc-pitch-title {
+    color: var(--muted); font-size: clamp(11px, 0.25vw + 10.4px, 12px);
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: 9px; font-weight: 600;
+  }
+  .fc-pitch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 14px; }
+  .fc-pitch-value { font-weight: 700; font-size: clamp(14px, 0.4vw + 12.8px, 16px); font-variant-numeric: tabular-nums; word-break: break-word; }
+
   .filecard .fc-grid {
     display: grid; grid-template-columns: auto 1fr; gap: 2px 12px;
-    margin-top: 10px; font-size: 12.5px;
+    margin-top: 12px; font-size: clamp(12px, 0.25vw + 11.4px, 12.8px);
   }
   .filecard .fc-k { color: var(--muted); }
-  .filecard .fc-v { font-weight: 600; }
+  .filecard .fc-v { font-weight: 600; word-break: break-word; }
   .filecard .fc-clear {
-    margin-top: 10px; background: none; border: 0; color: var(--muted);
-    font: inherit; font-size: 12.5px; cursor: pointer; padding: 0; text-decoration: underline;
+    margin-top: 11px; background: none; border: 0; color: var(--muted);
+    font: inherit; font-size: clamp(12.5px, 0.3vw + 11.8px, 13.5px); cursor: pointer;
+    padding: 4px 0; text-decoration: underline; width: auto; display: inline-block; text-align: left;
   }
   .filecard .fc-clear:hover { color: var(--accent); }
 
-  label.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+  label.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; font-size: clamp(13.5px, 0.3vw + 12.8px, 14.5px); }
   label.row > span { flex: 0 0 auto; }
   select, input[type=text] {
     background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-    border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 14px; min-width: 180px;
+    border-radius: 9px; padding: 8px 10px; font: inherit; font-size: inherit;
+    min-width: 0; max-width: 62%; flex: 1 1 180px;
   }
-  select { max-width: 60%; }
-  .hint { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
+  select { width: auto; }
+  .hint { font-size: clamp(11.5px, 0.25vw + 11px, 12.5px); color: var(--muted); margin: -6px 0 12px; }
   .check { display: flex; align-items: center; gap: 8px; }
   button {
     background: var(--accent); color: #1a1013; border: 0; border-radius: 10px;
-    padding: 11px 18px; font: inherit; font-weight: 650; cursor: pointer; width: 100%;
+    padding: 12px 18px; font: inherit; font-weight: 650; cursor: pointer; width: 100%;
   }
   button:disabled { opacity: .55; cursor: progress; }
   button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); width: auto; }
-  .status { margin-top: 14px; font-size: 14px; color: var(--muted); min-height: 22px; }
+  .status { margin-top: 14px; font-size: clamp(13px, 0.3vw + 12.4px, 14px); color: var(--muted); min-height: 22px; }
   .status.err { color: #ff7b72; }
   .status.ok { color: var(--ok); }
   .bar { height: 4px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 10px; }
@@ -122,23 +173,68 @@
   .dl { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
   .dl a {
     text-decoration: none; color: var(--text); background: var(--panel-2);
-    border: 1px solid var(--line); border-radius: 10px; padding: 9px 15px; font-size: 14px; font-weight: 600;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 15px; font-size: clamp(13px, 0.3vw + 12.4px, 14px); font-weight: 600;
   }
   .dl a:hover { border-color: var(--accent); }
   .lines { max-height: 460px; overflow: auto; margin-top: 6px; }
   .ln { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
   .ln:last-child { border-bottom: 0; }
   .ln .t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 74px; padding-top: 3px; }
-  .ln .x { flex: 1; font-size: 15px; }
+  .ln .x { flex: 1 1 auto; min-width: 0; font-size: clamp(14px, 0.3vw + 13.4px, 15px); }
   pre.raw {
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px; max-height: 300px; overflow: auto; white-space: pre-wrap; font-size: 14px; margin: 12px 0 0;
+    padding: 14px; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-size: clamp(13px, 0.3vw + 12.4px, 14px); margin: 12px 0 0;
   }
-  .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: clamp(12.5px, 0.3vw + 11.9px, 13.5px); margin-top: 12px; }
   .meta b { color: var(--text); font-weight: 600; }
-  footer { margin-top: 28px; color: var(--muted); font-size: 13px; text-align: center; }
+  footer { margin-top: 28px; color: var(--muted); font-size: clamp(12.5px, 0.3vw + 11.9px, 13.5px); text-align: center; }
   footer .licence { display: block; margin-top: 6px; font-size: 12px; opacity: 0.75; }
-  code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 0.92em; word-break: break-word; }
+
+  /* one column on a narrow screen */
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  /* a phone: the label sits above its control, the measurements go in one column */
+  @media (max-width: 560px) {
+    label.row { flex-direction: column; align-items: stretch; gap: 6px; }
+    label.row > span { flex: 1 1 auto; }
+    select, input[type=text] { max-width: 100%; flex: 1 1 auto; width: 100%; }
+    /* a check box keeps its own line, a stretched check box draws in the middle */
+    label.row.check { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+    .filecard .fc-grid { grid-template-columns: 1fr; gap: 0; }
+    .filecard .fc-grid .fc-k { margin-top: 6px; }
+    .filecard .fc-grid .fc-k:first-child { margin-top: 0; }
+    .fc-measure-grid, .fc-pitch-grid { grid-template-columns: 1fr 1fr; }
+    .ln { gap: 8px; }
+    .ln .t { min-width: 62px; }
+  }
+  @media (max-width: 380px) {
+    .fc-measure-grid, .fc-pitch-grid { grid-template-columns: 1fr; }
+  }
+  /* a tablet or a desktop with a narrow window */
+  @media (min-width: 901px) and (max-width: 1200px) {
+    .wrap { max-width: 100%; }
+  }
+  /* touch screens get bigger tap targets */
+  @media (pointer: coarse) {
+    button { padding: 14px 18px; }
+    .filecard .fc-clear { padding: 10px 0; }
+    .dl a { padding: 12px 16px; }
+    select, input[type=text] { padding: 11px 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    .bar > i { transition: none; }
+  }
+  @media print {
+    body { background: #fff; color: #000; }
+    #drop, .filecard .fc-clear, button, .bar, footer .licence { display: none !important; }
+    .card { border: 1px solid #999; break-inside: avoid; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    .lines { max-height: none; overflow: visible; }
+  }
 </style>
 </head>
 <body>
@@ -151,7 +247,7 @@
   <div class="grid">
     <section class="card">
       <h2>1. Audio</h2>
-      <div id="drop">
+      <div id="drop" role="button" tabindex="0" aria-label="Choose an audio or video file">
         <div class="big">Drop an audio or video file here</div>
         <div class="small">mp3, wav, flac, ogg, opus, m4a, mp4 and more. No size limit, no time limit.</div>
       </div>
@@ -160,11 +256,27 @@
 
       <div class="filecard" id="filecard" hidden>
         <div class="fc-top">
-          <div>
+          <div class="fc-min">
             <div class="fc-name" id="fcName"></div>
             <div class="fc-sub" id="fcSub"></div>
           </div>
           <span class="badge" id="fcBadge">attached</span>
+        </div>
+        <div class="fc-measure" id="fcMeasure" hidden>
+          <div class="fc-measure-grid" id="fcMeasureGrid"></div>
+        </div>
+        <div class="fc-pitch" id="fcPitch" hidden>
+          <div class="fc-pitch-title">Own pitch and speed</div>
+          <div class="fc-pitch-grid">
+            <div class="fc-measure-item">
+              <span class="fc-measure-label">Pitch</span>
+              <span class="fc-pitch-value" id="fcPitchValue">-</span>
+            </div>
+            <div class="fc-measure-item">
+              <span class="fc-measure-label">Speed</span>
+              <span class="fc-pitch-value" id="fcSpeedValue">-</span>
+            </div>
+          </div>
         </div>
         <div class="fc-grid" id="fcGrid"></div>
         <button type="button" class="fc-clear" id="fcClear">Remove this file</button>
@@ -212,7 +324,7 @@
 
       <button id="go">Extract lyrics</button>
       <div class="bar"><i id="bar"></i></div>
-      <div class="status" id="status"></div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
     </section>
 
     <section class="card">
@@ -246,6 +358,11 @@ const fcSub = document.getElementById('fcSub');
 const fcGrid = document.getElementById('fcGrid');
 const fcBadge = document.getElementById('fcBadge');
 const fcClear = document.getElementById('fcClear');
+const fcMeasure = document.getElementById('fcMeasure');
+const fcMeasureGrid = document.getElementById('fcMeasureGrid');
+const fcPitch = document.getElementById('fcPitch');
+const fcPitchValue = document.getElementById('fcPitchValue');
+const fcSpeedValue = document.getElementById('fcSpeedValue');
 const scriptSel = document.getElementById('script');
 const scriptHint = document.getElementById('scriptHint');
 let picked = null;
@@ -317,6 +434,9 @@ function clearFile() {
 }
 
 drop.addEventListener('click', function () { input.click(); });
+drop.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+});
 drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('hot'); });
 drop.addEventListener('dragleave', function () { drop.classList.remove('hot'); });
 drop.addEventListener('drop', function (e) {
@@ -337,6 +457,99 @@ function take(file) {
   statusEl.className = 'status';
   document.getElementById('result').hidden = true;
   document.getElementById('empty').hidden = false;
+  measure(file);
+}
+
+/* ---------------------------------------------------------------------
+   The measurements of the attached file, the same panel as MASH_SUNONA:
+   peak, loudness, clipped, dc offset, head silence, crest, then the own
+   pitch and speed of the song.
+   --------------------------------------------------------------------- */
+
+function measureItem(label, value, extraClass) {
+  var item = document.createElement('div');
+  item.className = 'fc-measure-item';
+  var name = document.createElement('span');
+  name.className = 'fc-measure-label';
+  name.textContent = label;
+  var val = document.createElement('span');
+  val.className = 'fc-measure-value' + (extraClass ? ' ' + extraClass : '');
+  val.textContent = value;
+  item.appendChild(name);
+  item.appendChild(val);
+  return item;
+}
+
+function setMeasure(label, value, extraClass) {
+  for (var i = 0; i < fcMeasureGrid.children.length; i++) {
+    var item = fcMeasureGrid.children[i];
+    if (item.querySelector('.fc-measure-label').textContent === label) {
+      var val = item.querySelector('.fc-measure-value');
+      val.textContent = value;
+      val.className = 'fc-measure-value' + (extraClass ? ' ' + extraClass : '');
+      return;
+    }
+  }
+  fcMeasureGrid.appendChild(measureItem(label, value, extraClass));
+}
+
+function num(value, digits, unit) {
+  if (value === null || value === undefined || isNaN(value)) return '-';
+  return Number(value).toFixed(digits) + (unit ? ' ' + unit : '');
+}
+
+function describeSource(source) {
+  if (!source) return;
+  var parts = [];
+  if (source.size_bytes) { parts.push(bytes(source.size_bytes)); }
+  if (source.duration) { parts.push(clock(source.duration)); }
+  if (source.channels) { parts.push(source.channels + ' ch'); }
+  if (source.sample_rate) { parts.push(source.sample_rate + ' Hz'); }
+  if (parts.length) { fcSub.textContent = parts.join(' - '); }
+  fcGrid.innerHTML =
+    row('format', source.format_name || '') +
+    row('bit rate', source.bit_rate ? Math.round(source.bit_rate / 1000) + ' kbps' : '') +
+    row('sample rate', source.sample_rate ? source.sample_rate + ' Hz' : '') +
+    row('channels', source.channels ? source.channels + (source.channels === 1 ? ' mono' : ' stereo') : '') +
+    row('duration', source.duration ? clock(source.duration) : '');
+}
+
+async function measure(file) {
+  fcMeasure.hidden = false;
+  fcPitch.hidden = false;
+  var labels = ['Peak', 'Loudness', 'Clipped', 'DC offset', 'Head silence', 'Crest'];
+  fcMeasureGrid.innerHTML = '';
+  for (var i = 0; i < labels.length; i++) {
+    fcMeasureGrid.appendChild(measureItem(labels[i], 'measuring...', 'pending'));
+  }
+  fcPitchValue.textContent = 'measuring...';
+  fcSpeedValue.textContent = 'measuring...';
+
+  var form = new FormData();
+  form.append('file', file, file.name);
+  try {
+    var response = await fetch('/api/analyze', { method: 'POST', body: form });
+    var data = await response.json();
+    if (!response.ok) { throw new Error(data.detail || 'The measurement failed.'); }
+    describeSource(data.source);
+    setMeasure('Peak', num(data.peak_dbfs, 1, 'dB'));
+    setMeasure('Loudness', num(data.loudness_lufs, 1, 'LUFS'));
+    var clipped = data.clipped_samples || 0;
+    setMeasure('Clipped', clipped > 0 ? clipped + ' samples' : 'none',
+      clipped > 0 ? 'warn' : '');
+    setMeasure('DC offset', num(data.dc_offset_percent, 3, '%'));
+    setMeasure('Head silence', num(data.head_silence_seconds, 2, 's'));
+    setMeasure('Crest', num(data.crest_db, 1, 'dB'));
+    var pitch = data.key ? (data.mode ? data.key + ' ' + data.mode : data.key) : '-';
+    fcPitchValue.textContent = pitch;
+    fcSpeedValue.textContent = data.bpm ? Math.round(data.bpm) + ' bpm' : '-';
+  } catch (err) {
+    fcMeasureGrid.innerHTML = '';
+    var note = measureItem('Measurements', 'not available', 'pending');
+    fcMeasureGrid.appendChild(note);
+    fcPitchValue.textContent = 'not available';
+    fcSpeedValue.textContent = 'not available';
+  }
 }
 
 async function loadModels() {
@@ -431,15 +644,6 @@ function render(data) {
   if (data.meta && data.meta.dialect) { add('Dialect', data.meta.dialect); }
   if (data.meta && data.meta.backend) { add('Engine', data.meta.backend); }
   if (data.meta && data.meta.elapsed) { add('Took', data.meta.elapsed.toFixed(1) + ' s'); }
-
-  /* what the server found when it opened the file */
-  var source = data.source || {};
-  fcGrid.innerHTML =
-    row('size', bytes(source.size_bytes)) +
-    row('type', source.format_name || '') +
-    row('duration', source.duration ? clock(source.duration) : '') +
-    row('sample rate', source.sample_rate ? source.sample_rate + ' Hz' : '') +
-    row('channels', source.channels ? source.channels + (source.channels === 1 ? ' mono' : ' stereo') : '');
 
   var dl = document.getElementById('dl');
   dl.innerHTML = '';

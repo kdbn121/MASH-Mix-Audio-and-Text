@@ -29,6 +29,7 @@ The server has no authentication. Bind it to `127.0.0.1` unless it sits behind a
 | GET | `/api/models` | The model catalogue |
 | POST | `/api/lyrics` | Upload an audio file, get lyric lines and download links |
 | GET | `/api/lyrics/{job_id}/download/{fmt}` | Download `srt`, `txt`, `vtt` or `lrc` |
+| POST | `/api/analyze` | Upload an audio file, get its levels, its key and its tempo |
 | POST | `/api/transcribe` | Transcribe an upload |
 | POST | `/api/speech` | OpenAI style text to speech, returns audio |
 | POST | `/api/audio/transcriptions` | OpenAI style speech to text |
@@ -261,6 +262,63 @@ Two things follow from that:
 - **A format that was not produced returns 404** with the detail `Format 'xyz' was not produced`.
 
 The job table lives in the memory of the server process, and the files live in the temporary folder. Both are gone when the server restarts, so download the files before then. With more than one uvicorn worker, each worker has its own job table, so download from the worker that handled the upload.
+
+## POST /api/analyze
+
+Measure an uploaded file. Returns the levels of the recording, the headroom it has
+left, the key of the song and its tempo. The web interface uses this to fill in the
+measurement panel of the attached file.
+
+The body is multipart form data with a single field, `file`.
+
+```bash
+curl -X POST http://localhost:8000/api/analyze \
+  -F "file=@song.mp3"
+```
+
+```json
+{
+  "peak_dbfs": -0.47690773017124866,
+  "rms_dbfs": -14.213864439436223,
+  "loudness_lufs": -11.296143090320857,
+  "clipped_samples": 0,
+  "dc_offset_percent": 0.018794408984075372,
+  "head_silence_seconds": 2.0833333333333333e-05,
+  "crest_db": 13.736956709264975,
+  "key": "D",
+  "mode": "minor",
+  "bpm": 110.99999726717473,
+  "backend": "numpy",
+  "source": {
+    "name": "song.mp3",
+    "size_bytes": 6074852,
+    "duration": 262.68,
+    "sample_rate": 48000,
+    "channels": 2,
+    "bit_rate": 185000,
+    "format_name": "mp3"
+  }
+}
+```
+
+| Field | What it is |
+|---|---|
+| `peak_dbfs` | The loudest sample of the file, in dBFS |
+| `rms_dbfs` | The average level of the file, in dBFS |
+| `loudness_lufs` | The integrated loudness, in LUFS, measured with the BS.1770 filter on each channel as it was uploaded |
+| `clipped_samples` | The number of samples that reached full scale. Above zero it is a fault the recording cannot repair afterwards |
+| `dc_offset_percent` | How far the signal sits above silence, as a percentage of full scale |
+| `head_silence_seconds` | The silence at the start of the file, in seconds |
+| `crest_db` | The gap between the peak and the average level, in dB |
+| `key` | The key of the song, for example `D` |
+| `mode` | `major` or `minor` |
+| `bpm` | The tempo of the song, in beats a minute |
+| `backend` | The analysis engine that produced the numbers |
+| `source` | The facts of the container: the name, the size, the length, the sample rate, the number of channels, the bit rate and the format |
+
+Every measurement is optional. A file that cannot be decoded still returns the facts
+the probe found, so the caller always has something to show. The uploaded copy is
+removed as soon as the measurement is done, so the route holds nothing on disk.
 
 ## POST /api/transcribe
 

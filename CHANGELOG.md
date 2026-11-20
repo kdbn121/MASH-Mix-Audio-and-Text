@@ -4,6 +4,57 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.1.3] - 2026-11-20
+
+The measurements of the attached file, and a page that fits every screen.
+
+### Added
+
+- A measurement panel in the **1. Audio** section of the web interface, in the
+  style of the MASH_SUNONA assistant panel. It shows the peak, the integrated
+  loudness, the clipped samples, the dc offset, the head silence and the crest
+  of the attached file, and under **Own pitch and speed** the key of the song
+  and its tempo.
+- `POST /api/analyze`, which measures an uploaded file and returns the same
+  numbers, together with the facts of the container: the name, the size, the
+  length, the sample rate, the number of channels, the bit rate and the
+  format. The loudness is measured on each channel of the file as it was
+  uploaded, not on a downmix of it.
+- The analysis now counts the clipped samples, the dc offset, the head silence
+  and the crest factor, and reports them in the result and in its meta block.
+- A test file for the measurements, for the analysis route and for the panel
+  in the page.
+
+### Changed
+
+- The whole web interface is now one responsive layout. It runs on a phone, a
+  tablet, a laptop and a wide desktop, on Windows, Linux, macOS, Android and
+  iOS. The type scales with the window, the two columns become one on a
+  narrow screen, the controls stack their label above them, the tap targets
+  grow on a touch screen, the motion is dropped when the system asks for less
+  motion, and the page prints cleanly.
+- `mash-mix analyze` measures the channels of a recording as they are. The
+  peak of a stereo master is the loudest channel of it and not the average of
+  the two, and the BS.1770 loudness is defined per channel. The command line
+  and the web panel now report the same numbers for the same file.
+- The key of a song is read from the peaks of the spectrum rather than from
+  every bin of it. The broadband skirt of a loud note leaks into the pitch
+  classes next door, and the harmonic content of a chord does the same. A C
+  major triad that carries a few harmonics used to read as E minor, and the
+  real song used to read as A major.
+- The beat period is searched in steps of a fraction of a frame, and the onsets
+  are folded onto the beat grid to tell a beat apart from two beats. The beat
+  of a real track does not land on a whole frame, and a search that only looks
+  at whole frames reads the wrong tempo whenever it does not. The tempo of the
+  real song now reads 111 beats a minute instead of 55, and a click track at
+  120, 140 and 180 beats a minute is read at its own tempo.
+
+### Fixed
+
+- The tempo of a track that beats at 120, 140 or 180 beats a minute was read
+  at half or a third of its real value. The documented limitation of the
+  previous release is gone.
+
 ## [0.1.2] - 2026-11-20
 
 Vocal separation that actually runs, and lyric lines that follow the song.

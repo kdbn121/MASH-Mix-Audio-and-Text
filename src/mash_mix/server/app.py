@@ -105,6 +105,87 @@ def health() -> Dict[str, Any]:
     }
 
 
+def _analysis_details(path: Path) -> Dict[str, Any]:
+    """Measure the uploaded file: levels, headroom, pitch and tempo.
+
+    Every measurement is optional. A file that cannot be decoded still returns
+    the facts the probe found, so the interface always has something to show.
+    """
+    from ..audio.analyze import analyze as run_analyze
+    from ..audio.io import load as load_audio
+
+    details: Dict[str, Any] = {
+        "peak_dbfs": None,
+        "rms_dbfs": None,
+        "loudness_lufs": None,
+        "clipped_samples": 0,
+        "dc_offset_percent": None,
+        "head_silence_seconds": None,
+        "crest_db": None,
+        "key": None,
+        "mode": None,
+        "bpm": None,
+        "backend": "",
+    }
+    try:
+        buffer = load_audio(str(path), sr=None, mono=False)
+    except Exception:
+        return details
+    try:
+        # The channels are kept apart, because the loudness of a stereo file is
+        # measured per channel and not on a downmix.
+        result = run_analyze(buffer.samples, buffer.sample_rate)
+    except Exception:
+        return details
+
+    details.update(
+        {
+            "peak_dbfs": result.peak_dbfs,
+            "rms_dbfs": result.rms_dbfs,
+            "loudness_lufs": result.loudness_lufs,
+            "clipped_samples": int(result.clipped_samples),
+            "dc_offset_percent": result.dc_offset_percent,
+            "head_silence_seconds": result.head_silence_seconds,
+            "crest_db": result.crest_db,
+            "key": result.key,
+            "mode": result.mode,
+            "bpm": result.bpm,
+            "backend": result.backend,
+        }
+    )
+    return details
+
+
+@app.post("/api/analyze")
+async def analyze_upload(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Measure an uploaded file. Returns the levels, the headroom, the pitch and the tempo."""
+    from ..audio.io import probe
+
+    job_id = uuid.uuid4().hex[:12]
+    folder = _job_dir(job_id)
+    source = _save_upload(file, folder)
+    try:
+        facts: Dict[str, Any] = {}
+        try:
+            facts = probe(source)
+        except Exception:
+            facts = {}
+        payload = _analysis_details(source)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+    payload["source"] = {
+        "name": file.filename or source.name,
+        "size_bytes": facts.get("size_bytes"),
+        "duration": facts.get("duration"),
+        "sample_rate": facts.get("sample_rate"),
+        "channels": facts.get("channels"),
+        "bit_rate": facts.get("bit_rate"),
+        "format_name": facts.get("format_name"),
+    }
+    return payload
+
+
 @app.get("/api/languages")
 def languages() -> List[Dict[str, Any]]:
     """Every registered language tag with its standard identifiers."""

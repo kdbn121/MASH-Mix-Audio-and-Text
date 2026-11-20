@@ -432,11 +432,42 @@ the sample rate and the number of channels.
 Next to the language there is an **Output script** choice, `Bangla` or `Banglish`, so
 the caller decides which writing system the lyrics come back in.
 
+### The measurements of the attached file
+
+As soon as a file is attached the server measures it and the card fills in, the same
+way the MASH_SUNONA assistant panel does it:
+
+| Measurement | What it means |
+|---|---|
+| Peak | The loudest sample of the file, in dBFS |
+| Loudness | The integrated loudness, in LUFS, measured per channel with the BS.1770 filter |
+| Clipped | The number of samples that reached full scale. Any number above zero is a fault the recording cannot repair afterwards |
+| DC offset | How far the signal sits above silence, as a percentage of full scale |
+| Head silence | The silence at the start of the file, in seconds |
+| Crest | The gap between the peak and the average level, in dB |
+| Pitch | The key and the mode of the song, for example D minor |
+| Speed | The tempo of the song, in beats a minute |
+
+The measurement route is public, so another tool can ask for the same numbers:
+
+```bash
+curl -F "file=@my song.mp3" http://localhost:8000/api/analyze
+```
+
+### Every device and every operating system
+
+The page is one responsive layout. It runs on a phone, a tablet, a laptop and a wide
+desktop, on Windows, Linux, macOS, Android and iOS, in a browser and in a web view.
+The type scales with the window, the two columns become one on a narrow screen, the
+controls stack their label above them, the tap targets grow on a touch screen, the
+motion is dropped when the system asks for less motion, and the page prints cleanly.
+
 | Route | Method | What it does |
 |---|---|---|
 | `/` | GET | The web interface |
 | `/api/lyrics` | POST | Upload an audio file, get lyric lines and download links |
 | `/api/lyrics/{id}/download/{fmt}` | GET | Download `srt`, `txt`, `vtt` or `lrc` |
+| `/api/analyze` | POST | Upload an audio file, get its levels, its key and its tempo |
 | `/api/transcribe` | POST | Transcribe an upload |
 | `/api/speech` | POST | OpenAI style text to speech, returns audio |
 | `/api/audio/transcriptions` | POST | OpenAI style speech to text |

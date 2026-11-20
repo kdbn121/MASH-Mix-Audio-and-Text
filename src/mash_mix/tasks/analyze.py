@@ -12,11 +12,15 @@ __all__ = ["analyze", "separate"]
 
 
 def analyze(audio: Any, *, sample_rate: Optional[int] = None, **kwargs: Any) -> AnalysisResult:
-    """Measure a track: tempo, key, loudness, spectral shape and sections."""
+    """Measure a track: tempo, key, loudness, spectral shape and sections.
+
+    The channels are kept as they are, because the peak of a recording is the
+    loudest channel of it and not the average of the two.
+    """
     from ..audio.analyze import analyze as _analyze
 
-    buffer = to_buffer(audio, sample_rate=sample_rate)
-    return _analyze(buffer.mono(), buffer.sample_rate, **kwargs)
+    buffer = to_buffer(audio, sample_rate=sample_rate, mono=False)
+    return _analyze(buffer.samples, buffer.sample_rate, **kwargs)
 
 
 def separate(

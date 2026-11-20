@@ -193,7 +193,7 @@ mash-mix analyze "song.mp3" --json
 mash-mix analyze "song.mp3" -o report.json
 ```
 
-The report carries the duration, the sample rate, the channels, the tempo in BPM, the key and mode, the loudness in LUFS, the peak and RMS in dBFS, the spectral centroid, the detected sections and the beat times.
+The report carries the duration, the sample rate, the channels, the tempo in BPM, the key and mode, the loudness in LUFS, the peak and RMS in dBFS, the spectral centroid, the number of clipped samples, the dc offset, the silence at the head of the file, the crest factor, the detected sections and the beat times.
 
 ## separate
 

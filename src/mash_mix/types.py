@@ -273,6 +273,10 @@ class AnalysisResult:
     spectral_centroid: Optional[float] = None
     sections: List[Dict[str, Any]] = field(default_factory=list)
     beats: List[float] = field(default_factory=list)
+    clipped_samples: int = 0
+    dc_offset_percent: Optional[float] = None
+    head_silence_seconds: Optional[float] = None
+    crest_db: Optional[float] = None
     backend: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
 

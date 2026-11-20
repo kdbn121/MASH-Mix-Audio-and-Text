@@ -57,6 +57,27 @@ _MINOR_PROFILE = np.array(
 _MIN_DB = -120.0
 _MAX_BEATS = 2000
 
+#: Half width of the triangular window that folds a frequency bin onto a
+#: semitone, in semitones.
+_CHROMA_WIDTH = 0.5
+
+#: How close the autocorrelation at half the chosen period has to be before the
+#: tempo is read as twice as fast. A beat tracker that loses the plot often
+#: finds the period of two beats instead of one.
+_TEMPO_OCTAVE_RATIO = 0.8
+
+#: The tempo a beat tracker expects a track to be at, in beats a minute.
+_TEMPO_PRIOR_BPM = 120.0
+
+#: How many octaves around that expectation the prior reaches, as a standard
+#: deviation on a log scale.
+_TEMPO_PRIOR_WIDTH = 1.0
+
+#: The step of the beat period search, in frames of the onset envelope. The
+#: real beat rarely falls on a whole frame, and a search that only looks at
+#: whole frames reads the wrong tempo when the beat lands between two of them.
+_PERIOD_STEP_FRAMES = 0.05
+
 
 # ---------------------------------------------------------------------------
 # small helpers
@@ -136,6 +157,96 @@ def _onset_envelope(x: np.ndarray, sr: int) -> tuple[np.ndarray, float]:
     return envelope, hop / float(sr)
 
 
+def _ac_at(ac: np.ndarray, lag: float) -> float:
+    """The autocorrelation read at a lag that falls between two frames."""
+    if lag < 0.0 or lag >= float(ac.size) - 1.0:
+        return 0.0
+    low = int(math.floor(lag))
+    fraction = lag - low
+    return float(ac[low] * (1.0 - fraction) + ac[low + 1] * fraction)
+
+
+def _phase_concentration(times: np.ndarray, weights: np.ndarray, period: float) -> float:
+    """How tightly the onsets sit on the beat grid of a given period.
+
+    Every onset is folded onto a circle of circumference ``period``. When the
+    period is the real beat, the onsets all land on the same point of that
+    circle and the length of their weighted average is close to one. When the
+    period is twice the beat, every second onset lands on the opposite point
+    and the two halves cancel each other out.
+
+    This is what tells a beat apart from two beats. Unlike a plain
+    autocorrelation peak it keeps working when the beat falls between two
+    frames of the analysis grid, which is the normal case for a real tempo.
+    """
+    if times.size == 0 or period <= 0:
+        return 0.0
+    total = float(np.sum(weights))
+    if total <= 0:
+        return 0.0
+    angles = 2.0 * math.pi * times / period
+    real = float(np.sum(weights * np.cos(angles)))
+    imag = float(np.sum(weights * np.sin(angles)))
+    return math.sqrt(real * real + imag * imag) / total
+
+
+def _pick_period(
+    ac: np.ndarray,
+    min_lag: int,
+    max_lag: int,
+    frame_rate: float,
+    onset_times: np.ndarray,
+    onset_weights: np.ndarray,
+    hop_seconds: float,
+) -> float | None:
+    """The beat period in frames, or ``None`` when nothing stands out.
+
+    The strongest single peak of the autocorrelation is not always the beat. A
+    track that beats twice as fast has a strong peak at twice the period as
+    well, and the slower one can win by a hair, which is how a tempo ends up
+    reported at half its real value.
+
+    Every candidate period is therefore scored on three things: the
+    autocorrelation at its multiples, so a period whose double also carries
+    support wins over a period that stands alone; how tightly the onsets sit
+    on its grid, which is what tells a beat apart from two beats; and a tempo
+    prior, which pulls the result towards the range a listener expects.
+
+    The search moves in steps of a fraction of a frame, because the beat of a
+    real track does not land on a whole frame and a search that only looks at
+    whole frames picks the wrong tempo whenever it does not.
+    """
+    if max_lag <= min_lag:
+        return None
+    best_frame: float | None = None
+    best_score = -1.0
+    frame = float(min_lag)
+    while frame <= float(max_lag):
+        period = frame * hop_seconds
+        score = 0.0
+        weights = 0.0
+        for multiple, weight in ((1, 1.0), (2, 0.5), (3, 0.33), (4, 0.25)):
+            score += weight * _ac_at(ac, frame * multiple)
+            weights += weight
+        if weights > 0:
+            bpm = 60.0 / period
+            lock = _phase_concentration(onset_times, onset_weights, period)
+            combined = (score / weights) * (0.25 + 0.75 * lock) * _tempo_prior(bpm)
+            if combined > best_score:
+                best_score = combined
+                best_frame = frame
+        frame += _PERIOD_STEP_FRAMES
+    return best_frame
+
+
+def _tempo_prior(bpm: float) -> float:
+    """A log normal prior over the tempo, centred on 120 beats a minute."""
+    if bpm <= 0:
+        return 0.0
+    distance = math.log2(bpm / _TEMPO_PRIOR_BPM)
+    return math.exp(-0.5 * (distance / _TEMPO_PRIOR_WIDTH) ** 2)
+
+
 def _numpy_beats(x: np.ndarray, sr: int) -> tuple[float | None, list[float]]:
     """Beat tracker built on the numpy autocorrelation of the onset envelope."""
     envelope, hop_seconds = _onset_envelope(x, sr)
@@ -150,20 +261,31 @@ def _numpy_beats(x: np.ndarray, sr: int) -> tuple[float | None, list[float]]:
     max_lag = min(ac.size - 1, int(frame_rate * 60.0 / 40.0))
     if max_lag <= min_lag:
         return None, []
-    window = ac[min_lag : max_lag + 1]
-    if window.size == 0:
+    # The first meaningful onset anchors the beat grid.
+    positive = np.maximum(envelope, 0.0)
+    threshold = float(np.mean(positive) + 0.5 * float(np.std(positive)))
+    anchors = np.flatnonzero(positive > threshold)
+    if anchors.size == 0:
         return None, []
-    best = int(np.argmax(window)) + min_lag
-    if best >= ac.size:
+    offset = float(anchors[0]) * hop_seconds
+    onset_times = anchors.astype(np.float64) * hop_seconds
+    onset_weights = positive[anchors]
+    best = _pick_period(
+        ac, min_lag, max_lag, frame_rate, onset_times, onset_weights, hop_seconds
+    )
+    if best is None:
         return None, []
     # Refine the peak with a parabolic fit on the three points around it.
     lag = float(best)
-    if 0 < best < ac.size - 1:
-        left, middle, right = ac[best - 1], ac[best], ac[best + 1]
-        denominator = left - 2.0 * middle + right
-        if abs(denominator) > 1e-12:
-            lag = best + 0.5 * (left - right) / denominator
-    confidence = float(ac[int(best)])
+    left = _ac_at(ac, lag - 1.0)
+    middle = _ac_at(ac, lag)
+    right = _ac_at(ac, lag + 1.0)
+    denominator = left - 2.0 * middle + right
+    if abs(denominator) > 1e-12:
+        refined = lag + 0.5 * (left - right) / denominator
+        if min_lag <= refined <= max_lag:
+            lag = refined
+    confidence = float(_ac_at(ac, lag))
     if confidence < 0.05:
         return None, []
     period = lag / frame_rate
@@ -172,11 +294,6 @@ def _numpy_beats(x: np.ndarray, sr: int) -> tuple[float | None, list[float]]:
     bpm = 60.0 / period
     if bpm < 40.0 or bpm > 200.0:
         return None, []
-    # Anchor the beat grid on the first meaningful onset.
-    positive = np.maximum(envelope, 0.0)
-    threshold = float(np.mean(positive) + 0.5 * float(np.std(positive)))
-    anchors = np.flatnonzero(positive > threshold)
-    offset = float(anchors[0]) * hop_seconds if anchors.size else 0.0
     total = x.size / float(sr)
     beats: list[float] = []
     time = offset
@@ -205,23 +322,44 @@ def _librosa_beats(x: np.ndarray, sr: int) -> tuple[float | None, list[float]]:
 
 
 def _chroma(x: np.ndarray, sr: int) -> np.ndarray | None:
-    """Average chroma vector built from an FFT magnitude spectrogram."""
+    """Average chroma vector built from an FFT magnitude spectrogram.
+
+    Only the peaks of the average spectrum are read, and each peak is folded
+    onto the nearest semitone with a triangular window, so a bin that sits
+    between two semitones counts for less than a peak that sits on one.
+
+    Reading the peaks instead of every bin is what keeps the answer honest.
+    A loud note spreads its energy over the bins around it, and the broadband
+    skirt of that energy leaks into the pitch classes next door. The harmonic
+    content of a chord does the same, and it pushes the answer towards the
+    wrong key: a C major triad that carries a few harmonics reads as E minor
+    when the broadband energy is counted, and as C major when only the peaks
+    are counted.
+    """
     n_fft = 4096
     hop = 2048
     magnitude = _stft_magnitude(x, n_fft, hop)
     if magnitude.shape[0] == 0:
         return None
+    spectrum = magnitude.mean(axis=0)
     freqs = np.fft.rfftfreq(n_fft, 1.0 / float(sr))
-    valid = (freqs >= 55.0) & (freqs <= 2200.0)
-    if not valid.any():
-        return None
     chroma = np.zeros(12)
-    for index, frequency in enumerate(freqs):
-        if not valid[index]:
+    for index in range(1, spectrum.size - 1):
+        value = float(spectrum[index])
+        if value <= 0.0:
+            continue
+        if value <= spectrum[index - 1] or value < spectrum[index + 1]:
+            continue
+        frequency = freqs[index]
+        if frequency < 55.0 or frequency > 2200.0:
             continue
         midi = 69.0 + 12.0 * math.log2(frequency / 440.0)
-        pitch_class = int(round(midi)) % 12
-        chroma[pitch_class] += float(magnitude[:, index].sum())
+        centre = float(round(midi))
+        distance = abs(midi - centre)
+        if distance > _CHROMA_WIDTH:
+            continue
+        weight = 1.0 - (distance / _CHROMA_WIDTH)
+        chroma[int(centre) % 12] += value * weight
     total = float(chroma.sum())
     if total <= 0:
         return None
@@ -554,6 +692,62 @@ def _convolve_diagonal(matrix: np.ndarray, kernel: np.ndarray, half: int) -> np.
 
 
 # ---------------------------------------------------------------------------
+# signal health
+# ---------------------------------------------------------------------------
+
+#: A sample at or above this level counts as clipped.
+_CLIP_LEVEL = 0.999
+
+#: The level below which a sample counts as silence, in dBFS.
+_SILENCE_DBFS = -60.0
+
+
+def _clipped_samples(raw: np.ndarray) -> int:
+    """Count the samples that sit at or above full scale.
+
+    A clipped sample has reached the ceiling of the format and lost its shape,
+    so it is the one fault in a recording that cannot be repaired afterwards.
+    """
+    if raw.size == 0:
+        return 0
+    return int(np.count_nonzero(np.abs(raw) >= _CLIP_LEVEL))
+
+
+def _dc_offset(raw: np.ndarray) -> float | None:
+    """The direct current offset of the signal, as a percentage of full scale.
+
+    A small offset is normal in a recorded file. A large one means the signal
+    has drifted and will eat headroom.
+    """
+    if raw.size == 0:
+        return None
+    return float(abs(np.mean(raw)) * 100.0)
+
+
+def _head_silence(samples: np.ndarray, sr: int) -> float | None:
+    """Seconds of silence before the first sound in the file."""
+    if samples.size == 0 or sr <= 0:
+        return None
+    floor = 10.0 ** (_SILENCE_DBFS / 20.0)
+    loud = np.flatnonzero(np.abs(samples) > floor)
+    if loud.size == 0:
+        return float(samples.size / float(sr))
+    return float(loud[0] / float(sr))
+
+
+def _crest_db(peak_dbfs: float | None, rms_dbfs: float | None) -> float | None:
+    """The crest factor, the gap between the peak and the average level.
+
+    A small crest means a squashed recording with no headroom left. A large
+    crest means a wide dynamic range, which is what a live recording of a band
+    usually has.
+    """
+    if peak_dbfs is None or rms_dbfs is None:
+        return None
+    return float(peak_dbfs - rms_dbfs)
+
+
+# ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
 
@@ -594,6 +788,10 @@ def analyze(audio: np.ndarray, sr: int, *, backend: str = "auto") -> AnalysisRes
     rms = float(np.sqrt(np.mean(np.square(raw))))
     result.peak_dbfs = _db(peak)
     result.rms_dbfs = _db(rms)
+    result.clipped_samples = _clipped_samples(raw)
+    result.dc_offset_percent = _dc_offset(raw)
+    result.head_silence_seconds = _head_silence(samples, rate)
+    result.crest_db = _crest_db(result.peak_dbfs, result.rms_dbfs)
     result.spectral_centroid = _spectral_centroid(samples.astype(np.float64), rate)
     try:
         result.loudness_lufs = _lufs(raw, rate)
@@ -626,5 +824,9 @@ def analyze(audio: np.ndarray, sr: int, *, backend: str = "auto") -> AnalysisRes
         "scipy_available": HAVE_SCIPY,
         "peak_linear": peak,
         "rms_linear": rms,
+        "clipped_samples": result.clipped_samples,
+        "dc_offset_percent": result.dc_offset_percent,
+        "head_silence_seconds": result.head_silence_seconds,
+        "crest_db": result.crest_db,
     }
     return result

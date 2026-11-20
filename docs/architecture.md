@@ -106,7 +106,7 @@ Every result object lives in `mash_mix.types` and every one of them has a `to_di
 | `LyricsResult` | `lines`, `language`, `duration`, `title`, `artist`, `backend`, `model`, `elapsed`, `meta` | Yes |
 | `SynthesisResult` | `audio` (numpy), `sample_rate`, `backend`, `model`, `voice`, `elapsed`, `meta` | No. `to_dict()` gives the metadata, not the waveform |
 | `SeparationResult` | `stems` (dict of numpy), `sample_rate`, `backend`, `model`, `elapsed`, `meta` | No. `to_dict()` gives the frame count of each stem |
-| `AnalysisResult` | `duration`, `sample_rate`, `channels`, `bpm`, `key`, `mode`, `loudness_lufs`, `peak_dbfs`, `rms_dbfs`, `spectral_centroid`, `sections`, `beats`, `backend`, `meta` | Yes |
+| `AnalysisResult` | `duration`, `sample_rate`, `channels`, `bpm`, `key`, `mode`, `loudness_lufs`, `peak_dbfs`, `rms_dbfs`, `spectral_centroid`, `sections`, `beats`, `clipped_samples`, `dc_offset_percent`, `head_silence_seconds`, `crest_db`, `backend`, `meta` | Yes |
 
 The rule of thumb: a result that carries audio is not JSON friendly, but its metadata is. The `to_dict()` method of the three audio carrying classes returns only the descriptive fields.
 

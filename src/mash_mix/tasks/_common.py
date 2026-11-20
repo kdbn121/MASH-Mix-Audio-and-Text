@@ -71,12 +71,17 @@ def pick_backend(kind: str, preferred: str = "auto") -> str:
     )
 
 
-def to_buffer(source: Any, *, sample_rate: Optional[int] = 16000) -> AudioBuffer:
-    """Turn a path, file object or AudioBuffer into an AudioBuffer."""
+def to_buffer(source: Any, *, sample_rate: Optional[int] = 16000, mono: bool = True) -> AudioBuffer:
+    """Turn a path, file object or AudioBuffer into an AudioBuffer.
+
+    ``mono`` asks for the downmix. A measurement of a recording wants the
+    channels as they are, because the peak of a stereo master is the loudest
+    channel and not the average of the two.
+    """
     if isinstance(source, AudioBuffer):
         buffer = source
     else:
-        buffer = load_audio_file(source, sr=sample_rate, mono=True)
+        buffer = load_audio_file(source, sr=sample_rate, mono=mono)
     if sample_rate and buffer.sample_rate != sample_rate:
         from ..audio.resample import resample_buffer
 
