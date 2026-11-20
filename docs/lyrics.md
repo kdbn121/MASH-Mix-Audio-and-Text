@@ -203,18 +203,24 @@ one long line scores badly on line recall and well on content recall.
 #### A measured song
 
 The song *Dol Dol Doloni*, 4 minutes 22 seconds, against its real lyric file, on a CPU
-with no graphics card:
+with no graphics card. Every row is the same scorer over the same truth file.
 
-| Setup | Word error rate | Content recall | Time |
-|---|---|---|---|
-| General model, no separation | 97.4 percent | 22.8 percent | 431 s |
-| Bangla fine tune, no separation | 77.1 percent | 64.9 percent | 367 s |
-| Bangla fine tune, vocals separated | 84.0 percent | 45.6 percent | 839 s |
+| Setup | Word error rate | Line recall | Content recall | Time |
+|---|---|---|---|---|
+| General model, raw mix | 97.4 percent | 22.8 percent | 22.8 percent | 431 s |
+| Bangla fine tune, raw mix, 0.1.1 pipeline | 77.1 percent | 0.0 percent | 64.9 percent | 367 s |
+| Bangla fine tune, raw mix, 0.1.2 pipeline | 76.2 percent | 26.3 percent | 71.9 percent | 324 s |
+| Bangla fine tune, vocals separated, 0.1.2 pipeline | 71.9 percent | 3.5 percent | 47.4 percent | 207 s |
 
 The fine tune is the whole difference between the first row and the second. The third
-row is the interesting one: separation made this song worse, because Demucs took the
-room reverb and the backing vocal with the voice. That is why separation is a choice
-and not a default.
+row is the line splitting: the lines now follow the punctuation the model wrote, so a
+lyric that used to come back as one long run of words comes back as the lines of the
+song.
+
+The last row is the interesting one. Separation gives the most accurate words and the
+fastest run, because the model has less to listen to, but it covers fewer of the
+distinct lines, because Demucs also took the room reverb and the backing vocal with
+the voice. That is why separation is a choice and not a default.
 
 ### The output script
 

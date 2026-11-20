@@ -213,23 +213,32 @@ long line would score badly on line recall and well on content recall.
 #### A measured song
 
 The song *Dol Dol Doloni* by the folk group Paban, 4 minutes 22 seconds, with the
-real lyric file as the truth, on a CPU with no graphics card:
+real lyric file as the truth, on a CPU with no graphics card. Every row is the same
+scorer over the same truth file.
 
-| Setup | Word error rate | Content recall | Time |
-|---|---|---|---|
-| General model, no separation | 97.4 percent | 22.8 percent | 431 s |
-| Bangla fine tune, no separation | 77.1 percent | 64.9 percent | 367 s |
-| Bangla fine tune, vocals separated | 84.0 percent | 45.6 percent | 839 s |
+| Setup | Word error rate | Line recall | Content recall | Time |
+|---|---|---|---|---|
+| General model, raw mix | 97.4 percent | 22.8 percent | 22.8 percent | 431 s |
+| Bangla fine tune, raw mix, 0.1.1 pipeline | 77.1 percent | 0.0 percent | 64.9 percent | 367 s |
+| Bangla fine tune, raw mix, 0.1.2 pipeline | 76.2 percent | 26.3 percent | 71.9 percent | 324 s |
+| Bangla fine tune, vocals separated, 0.1.2 pipeline | 71.9 percent | 3.5 percent | 47.4 percent | 207 s |
 
-Two lessons are worth keeping.
+Three lessons are worth keeping.
 
-The Bangla fine tune is the whole game. The general model wrote 55 percent wrong
-words on Bengali, the fine tune writes about 10 percent.
+**The Bangla fine tune is the whole game.** The general model wrote 55 percent wrong
+words on Bengali, the fine tune writes about 10 percent. On this song that is the
+difference between 22.8 percent and 64.9 percent content recall.
 
-**Separation is not always better.** On this song the separated voice stem was worse
-than the raw mix, because Demucs also takes the room reverb and the backing vocal
-with it, and this song leans on both. Separation is offered as a choice, not as a
-default, and the number above is the reason it is not the default.
+**The pipeline moves the line shape.** The 0.1.2 pipeline cut the lines at the
+punctuation the model wrote, so a lyric that used to come back as one long run of
+words now comes back as the lines of the song. That is the jump from 0 percent to
+26.3 percent line recall.
+
+**Separation is a trade off, not a win.** On the separated voice the words are the
+most accurate of the four, 71.9 percent word error rate, and the run is the fastest
+because the model has less to listen to. But the separated transcript covers fewer of
+the distinct lines, 47.4 percent against 71.9 percent, because Demucs also took the
+room reverb and the backing vocal with the voice. Run both and keep the better one.
 
 The word error rate stays high even when the content recall is good, because the
 true lyric file lists the chorus nine times and a transcript that catches it four
