@@ -225,6 +225,7 @@ async def lyrics(
     separate_vocals: bool = Form(False),
     backend: str = Form("auto"),
     model: Optional[str] = Form(None),
+    quality: str = Form("auto"),
 ) -> Dict[str, Any]:
     """Extract lyrics from an uploaded song. Returns the lines and download links."""
     from ..tasks.lyrics import extract_lyrics
@@ -244,6 +245,7 @@ async def lyrics(
             artist=artist,
             separate_vocals=bool(separate_vocals),
             script=script or "bangla",
+            quality=quality or "auto",
         )
     except Exception as exc:
         shutil.rmtree(folder, ignore_errors=True)

@@ -4,6 +4,54 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.2.0] - 2026-11-21
+
+The lyrics of a Bangla song come back right.
+
+### Changed
+
+- **The engine no longer starts at the small model.** The small model was the
+  default, and it read a Bangla song badly: the words ran into each other and
+  the lines came back in romanised Bangla even when the native script was
+  asked for. The same song read by the large model now comes back in the
+  native script with the words right. The filters and the line splitter were
+  working; they had nothing to work with.
+- **The model is chosen from a ladder and the ladder is walked.** The strong
+  model needs room in memory and a download that may not be there, so when one
+  cannot be loaded the engine moves to the next one instead of failing. A
+  request always comes back with lyrics. The result carries the model that
+  did the work and the reasons the ones above it were skipped.
+- **A whole track is read in one pass** when the model can take a long file.
+  A Whisper model keeps the thread of a song across the whole track, and the
+  chunked path asks the same question again with no memory of what came
+  before. The chunked path is kept for the models that cannot take a long
+  file.
+
+### Added
+
+- Three quality levels for the lyric command and for the server: `auto` picks
+  the model that fits the language, `best` forces the strongest one and `fast`
+  starts at the quick one.
+- An ElevenLabs Scribe backend. It is the strongest hosted recogniser for
+  Bangla and it gives the time of every word, so the karaoke lines keep their
+  timings. It needs an account and the key in `ELEVENLABS_API_KEY`, and
+  without a key it keeps out of the way. The audio leaves the machine, so it
+  is never reached unless it is named.
+- A Meta SeamlessM4T backend. It reads Bengali as well as most languages and
+  it runs locally, but it needs a large download and it gives the time of a
+  sentence and not the time of a word.
+- The catalogue of models now carries the two hosted recognisers and their
+  notes.
+
+### Tests
+
+- Tests for the ladder: the order of it, the rule that a named model is the
+  only candidate, the rule that a hosted backend is never reached on its own,
+  and the rule that a model which cannot be loaded does not end the job.
+- Tests for the two hosted backends: the request that is built, the answer
+  that is read back, and the rule that a backend without a key stays away.
+  None of them reaches the network.
+
 ## [0.1.5] - 2026-11-21
 
 The browser extension can reach the engine.

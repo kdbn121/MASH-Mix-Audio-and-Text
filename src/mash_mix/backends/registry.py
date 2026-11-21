@@ -37,6 +37,8 @@ _DISCOVERY_MODULES = (
     "mash_mix.backends.asr.openai_whisper",
     "mash_mix.backends.asr.faster_whisper",
     "mash_mix.backends.asr.transformers_asr",
+    "mash_mix.backends.asr.elevenlabs_stt",
+    "mash_mix.backends.asr.seamless_m4t",
     "mash_mix.backends.asr.funasr",
     "mash_mix.backends.asr.sherpa_onnx",
     "mash_mix.backends.asr.whisper_cpp",

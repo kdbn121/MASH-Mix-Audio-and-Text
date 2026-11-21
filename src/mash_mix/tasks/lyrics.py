@@ -303,6 +303,119 @@ def _shift(segments: Sequence[Segment], offset: float) -> List[Segment]:
     return out
 
 
+def _recognise(
+    engine: Any,
+    buffer: AudioBuffer,
+    *,
+    language: Optional[str],
+    initial_prompt: Optional[str],
+    hotwords: Optional[Sequence[str]],
+    engine_vad: bool,
+    progress: bool,
+    chunk_seconds: float,
+    overlap_seconds: float,
+    kwargs: dict,
+) -> Tuple[List[Segment], int]:
+    """Read a buffer with one recogniser and return its segments.
+
+    The audio is handed to the model in one piece when the model can take a
+    long file. A Whisper model reads a whole track on its own and keeps the
+    thread of the song across the whole track, while the chunked path asks
+    the model the same question again and again with no memory of what came
+    before, and a song is exactly where that shows. The chunked path is kept
+    for the models that cannot take a long file.
+    """
+    samples = buffer.mono()
+    if not len(samples):
+        return [], 0
+
+    call_kwargs: dict = {
+        "language": language,
+        "task": "transcribe",
+        "initial_prompt": initial_prompt,
+        "hotwords": list(hotwords) if hotwords else None,
+        "word_timestamps": True,
+        "vad": engine_vad,
+        "progress": progress,
+        "condition_on_previous_text": False,
+    }
+    call_kwargs.update(kwargs)
+
+    def run(block: Any) -> Any:
+        try:
+            return engine.transcribe(block, buffer.sample_rate, **call_kwargs)
+        except TypeError:
+            # A backend that does not take every keyword still does the work.
+            # The optional keywords are dropped one at a time, from the one
+            # that matters least to the one that matters most, until the
+            # call is accepted.
+            optional = [
+                "condition_on_previous_text",
+                "progress",
+                "vad",
+                "word_timestamps",
+                "hotwords",
+                "initial_prompt",
+            ]
+            accepted = dict(call_kwargs)
+            for name in optional:
+                if name not in accepted:
+                    continue
+                trimmed = dict(accepted)
+                trimmed.pop(name, None)
+                try:
+                    return engine.transcribe(block, buffer.sample_rate, **trimmed)
+                except TypeError:
+                    accepted = trimmed
+                    continue
+            raise
+
+    if _takes_long_audio(engine):
+        try:
+            partial = run(samples)
+        except Exception:
+            partial = None
+        if partial is not None and partial.segments:
+            return list(partial.segments), 1
+
+    from ..audio.chunk import chunk_audio
+
+    chunks = chunk_audio(
+        samples,
+        buffer.sample_rate,
+        chunk_seconds=chunk_seconds,
+        overlap_seconds=overlap_seconds,
+    )
+    segments: List[Segment] = []
+    for chunk in chunks:
+        block = chunk["samples"]
+        if block is None or len(block) == 0:
+            continue
+        offset = chunk["start"]
+        partial = run(block)
+        segments.extend(_shift(partial.segments, offset))
+    return segments, len(chunks)
+
+
+def _takes_long_audio(engine: Any) -> bool:
+    """True when the recogniser can read a whole track in one call.
+
+    The Whisper family handles a long file itself, with its own windowing
+    and its own voice activity detection, and it keeps the context of the
+    song as it goes. A model that answers one window at a time cannot.
+    """
+    name = str(getattr(engine, "name", "") or "").lower()
+    if not name:
+        return False
+    if name in ("faster-whisper", "whisper", "openai-whisper"):
+        return True
+    if name == "transformers":
+        # The transformers pipeline batches the windows itself, which has
+        # proved unstable on a CPU, so the chunked path is used for it.
+        return False
+    return False
+
+
 def extract_lyrics(
     audio: Any,
     *,
@@ -323,6 +436,7 @@ def extract_lyrics(
     sample_rate: int = 16000,
     progress: bool = False,
     script: str = "bangla",
+    quality: str = "auto",
     **kwargs: Any,
 ) -> LyricsResult:
     """Extract lyrics from a song or spoken track.
@@ -347,13 +461,18 @@ def extract_lyrics(
         The writing system of the returned lines. ``bangla`` keeps the native
         script and writes out any romanised Bangla the recogniser produced.
         ``banglish`` returns the same content in Latin letters.
+    quality:
+        Which model to reach for. ``auto`` picks the model that fits the
+        language, ``best`` forces the strongest one and ``fast`` starts at
+        the quick one. When a model cannot be loaded the next one in the
+        ladder is tried, so a request always comes back with lyrics.
     """
-    from ..audio.chunk import chunk_audio
     from ..backends.registry import get_stt
     from ..lang.dialect import detect_region
     from ..lang.normalize import clean_asr_text, is_bangla_text, normalize_bangla
     from ..lang.registry import is_bangla
     from ..lang.script import needs_script_repair, repair_to_bangla
+    from ..model_plan import plan_for
 
     buffer = to_buffer(audio, sample_rate=sample_rate)
 
@@ -380,50 +499,56 @@ def extract_lyrics(
 
     name = pick_backend("stt", backend)
 
+    # The ladder of models to try. The first one that loads and reads the
+    # audio does the work, and the result says which one it was.
+    candidates = plan_for(language, quality=quality, model=model, backend=backend)
+    chosen = None
+    segments: List[Segment] = []
+    failures: List[str] = []
+    chunk_count = 0
+
     with Timer() as timer:
-        engine = get_stt(name, model=model)
-
-        chunks = chunk_audio(
-            buffer.mono(),
-            buffer.sample_rate,
-            chunk_seconds=chunk_seconds,
-            overlap_seconds=overlap_seconds,
-        )
-
-        segments: List[Segment] = []
-        for chunk in chunks:
-            samples = chunk["samples"]
-            if samples is None or len(samples) == 0:
-                continue
-            offset = chunk["start"]
+        for candidate in candidates:
             try:
-                partial = engine.transcribe(
-                    samples,
-                    buffer.sample_rate,
+                engine = get_stt(candidate.backend, model=candidate.model)
+            except Exception as exc:
+                # The model is not installed, not downloaded or does not fit in
+                # memory. The next one in the ladder is tried.
+                failures.append(f"{candidate.model}: {exc}")
+                continue
+
+            try:
+                read_segments, read_chunks = _recognise(
+                    engine,
+                    buffer,
                     language=language,
-                    task="transcribe",
                     initial_prompt=initial_prompt,
-                    hotwords=list(hotwords) if hotwords else None,
-                    word_timestamps=True,
-                    vad=engine_vad,
+                    hotwords=hotwords,
+                    engine_vad=engine_vad,
                     progress=progress,
-                    condition_on_previous_text=False,
-                    **kwargs,
+                    chunk_seconds=chunk_seconds,
+                    overlap_seconds=overlap_seconds,
+                    kwargs=kwargs,
                 )
-            except TypeError:
-                partial = engine.transcribe(
-                    samples,
-                    buffer.sample_rate,
-                    language=language,
-                    task="transcribe",
-                    initial_prompt=initial_prompt,
-                    hotwords=list(hotwords) if hotwords else None,
-                    word_timestamps=True,
-                    vad=engine_vad,
-                    progress=progress,
-                    **kwargs,
-                )
-            segments.extend(_shift(partial.segments, offset))
+            except Exception as exc:
+                failures.append(f"{candidate.model}: {exc}")
+                continue
+
+            if not read_segments and candidates.index(candidate) + 1 < len(candidates):
+                # The model loaded but heard nothing. A stronger model may do
+                # better, so the ladder continues.
+                failures.append(f"{candidate.model}: heard nothing")
+                continue
+
+            chosen = candidate
+            segments = read_segments
+            chunk_count = read_chunks
+            name = candidate.backend
+            break
+
+    if chosen is None:
+        detail = "; ".join(failures) if failures else "no model was available"
+        raise RuntimeError(f"The lyrics could not be read. {detail}")
 
     lines: List[LyricLine] = []
     bangla_requested = is_bangla(language) if language else False
@@ -490,10 +615,14 @@ def extract_lyrics(
         title=title,
         artist=artist,
         backend=name,
-        model=model or (engine.model_id or ""),
+        model=(chosen.model if chosen else model) or "",
         elapsed=timer.elapsed,
         meta={
-            "chunks": len(chunks),
+            "chunks": chunk_count,
+            "model_used": (chosen.model if chosen else "") or "",
+            "model_label": (chosen.label if chosen else "") or "",
+            "quality": quality,
+            "model_fallbacks": failures,
             "dialect_confidence": detected.confidence,
             "dialect": detected.dialect,
             "evidence": detected.evidence,

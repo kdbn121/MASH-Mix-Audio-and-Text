@@ -190,11 +190,83 @@ are far better, and they write the lyrics in Bangla script instead of romanised 
 | `mozilla-ai/whisper-large-v3-bn` | 9.7 percent | the best Bangla accuracy available |
 | `mozilla-ai/whisper-large-v3-turbo-bn` | 11 percent | four times faster, the recommended one |
 
+**The engine no longer starts at the small model.** The small model was the default
+once, and a Bangla song read by it comes back mangled: the words run into each other
+and the line comes out in romanised Bangla even when the native script was asked for.
+That was the single biggest reason the lyrics were not good enough.
+
+The engine now walks a ladder of models and uses the first one that works:
+
+| Rung | Model | Why |
+|---|---|---|
+| 1 | `faster-whisper` with `large-v3` | the best read of a real song, and the quickest of the strong ones |
+| 2 | `transformers` with `mozilla-ai/whisper-large-v3-turbo-bn` | the Bangla fine tune, second because it needs more memory |
+| 3 | `faster-whisper` with `small` | the old default, kept as the floor |
+| 4 | `faster-whisper` with `tiny` | the last resort |
+
+**A model that cannot be loaded does not end the job.** The strong model needs room in
+memory and a download that may not be there. When one cannot be loaded, the engine
+moves to the next one and says so in the result, so a request always comes back with
+lyrics rather than with an error. The result carries the model that did the work:
+
+```python
+result.meta["model_used"]     # the model that read the song
+result.meta["model_fallbacks"]  # why the ones above it were skipped
+```
+
+The three quality levels choose where the ladder starts:
+
+```bash
+mash-mix lyrics "bangla song.mp3" --quality best    # the strongest model
+mash-mix lyrics "bangla song.mp3" --quality fast    # the quick one
+mash-mix lyrics "bangla song.mp3" --quality auto    # the default
+```
+
+A model can still be named outright, which puts it alone on the ladder:
+
 ```bash
 mash-mix lyrics "bangla song.mp3" \
   --backend transformers \
   --model mozilla-ai/whisper-large-v3-turbo-bn
 ```
+
+### Reading the song in one pass
+
+A Whisper model reads a whole track on its own, with its own windowing and its own
+voice activity detection, and it keeps the thread of the song as it goes. The engine
+hands the whole track to the model in one call for that reason.
+
+The chunked path is kept for the models that cannot take a long file. It is the one
+that asks the model the same question again and again with no memory of what came
+before, and a song is exactly where that shows.
+
+### The hosted recognisers
+
+Two backends read the audio somewhere other than this machine. They are never reached
+on their own, because the audio has to leave the machine to reach them, so the caller
+has to name one.
+
+**ElevenLabs Scribe** is the strongest hosted recogniser for Bangla. It needs an
+ElevenLabs account and the key in the environment:
+
+```bash
+# Windows PowerShell
+$env:ELEVENLABS_API_KEY = "your key here"
+mash-mix lyrics "bangla song.mp3" --backend elevenlabs
+```
+
+Without a key the backend reports itself unavailable and stays out of the way. It
+gives the time of every word, so the karaoke lines keep their timings.
+
+**Meta SeamlessM4T** is the multilingual model from Meta. It reads Bengali as well as
+most languages and it runs locally, but it needs a large download and a lot of memory:
+
+```bash
+mash-mix lyrics "bangla song.mp3" --backend seamless-m4t
+```
+
+It gives the time of a sentence and not the time of a word, so the local Whisper
+backends are the better choice when a karaoke line needs the time of a word inside it.
 
 ### Measuring the result
 
@@ -252,6 +324,31 @@ room reverb and the backing vocal with the voice. Run both and keep the better o
 The word error rate stays high even when the content recall is good, because the
 true lyric file lists the chorus nine times and a transcript that catches it four
 times is already short of the file, not wrong.
+
+#### The same song, read by the new default
+
+The table above was measured against the old default, the small model. The same song
+was read again with the new ladder, and the difference is the whole point of this
+release.
+
+| Setup | What came back |
+|---|---|
+| Old default, `small` model, chunked | `Nudon uton khopati`, `Dhododoloni`, `Ranga mathar chironi`, `Ene debo haath heke man tumi korona` |
+| New default, `large-v3`, one pass | `নুতন নুতন হোপাতি তুলে এনে দোপাতি`, `দোল দোল দোলনি রাঙা মাথার ছিরনি`, `এনে দেবো হাত থেকে মান তুমি করো না` |
+
+The old default read the song in romanised Bangla and got the words wrong. The new
+default read the same chorus in the native script and got the words right, and it
+found the lines the old one missed further into the song.
+
+Two lessons came out of the measurement.
+
+**The model was the problem, not the pipeline.** The filters, the line splitter and
+the script repair were all working. They had nothing to work with, because the small
+model had already mangled the words before they reached them.
+
+**Reading the song in one pass matters.** The model that reads a whole track keeps
+the thread of the song across the whole track. The chunked path asks the same
+question again with no memory of what came before, and a song is where that shows.
 
 ---
 

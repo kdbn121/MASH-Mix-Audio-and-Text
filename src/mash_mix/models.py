@@ -140,6 +140,40 @@ MODEL_CATALOG: List[Dict[str, Any]] = [
         "notes": "Best option for mobile builds that want the smallest footprint.",
         "url": "https://github.com/ggerganov/whisper.cpp",
     },
+    {
+        "id": "scribe_v3",
+        "task": "stt",
+        "backend": "elevenlabs",
+        "name": "ElevenLabs Scribe",
+        "size": "no local weights",
+        "languages": "90 languages, Bangla included",
+        "bengali": "yes, the strongest hosted recogniser for Bangla",
+        "license": "ElevenLabs service terms, the audio is billed per minute",
+        "platforms": "any device with a network connection",
+        "notes": (
+            "Needs an ElevenLabs account and the key in ELEVENLABS_API_KEY. The "
+            "audio leaves the machine, so this backend is opt in. It gives the "
+            "time of every word, so the karaoke lines keep their timings."
+        ),
+        "url": "https://elevenlabs.io/docs/api-reference/speech-to-text/convert",
+    },
+    {
+        "id": "facebook/seamless-m4t-v2-large",
+        "task": "stt",
+        "backend": "seamless-m4t",
+        "name": "Meta SeamlessM4T",
+        "size": "2.3 B",
+        "languages": "101 languages for speech, Bengali included",
+        "bengali": "yes, it reads Bengali as well as most languages",
+        "license": "CC BY-NC 4.0 for the weights",
+        "platforms": "Windows, Linux, macOS",
+        "notes": (
+            "Runs locally and needs a large download and a lot of memory. It "
+            "gives the time of a sentence and not the time of a word, so the "
+            "local Whisper backends are the better choice for karaoke."
+        ),
+        "url": "https://huggingface.co/facebook/seamless-m4t-v2-large",
+    },
     # ------------------------------------------------------------------ TTS
     {
         "id": "facebook/mms-tts-ben",

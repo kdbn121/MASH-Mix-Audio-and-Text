@@ -65,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_script_option(lyrics)
     lyrics.add_argument("--backend", default="auto", help="Speech to text backend. Default: auto.")
     lyrics.add_argument("--model", default=None, help="Model id for the backend.")
+    lyrics.add_argument(
+        "--quality",
+        default="auto",
+        choices=["auto", "best", "fast"],
+        help="Which model to reach for. Default: auto.",
+    )
     lyrics.add_argument("--title", default=None, help="Title written into the file header.")
     lyrics.add_argument("--artist", default=None, help="Artist written into the file header.")
     lyrics.add_argument(
@@ -214,6 +220,7 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
         initial_prompt=args.prompt,
         max_repeats=args.max_repeats,
         script=args.script,
+        quality=args.quality,
     )
     result = written.pop("result")
     if args.print_text:
@@ -222,7 +229,8 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
         print(f"{fmt}: {path}")
     print(
         f"language={result.language} lines={len(result.lines)} "
-        f"duration={result.duration:.1f}s elapsed={result.elapsed:.1f}s",
+        f"duration={result.duration:.1f}s elapsed={result.elapsed:.1f}s "
+        f"model={result.meta.get('model_used') or 'unknown'}",
         file=sys.stderr,
     )
     return 0
