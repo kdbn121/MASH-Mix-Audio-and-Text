@@ -366,6 +366,73 @@ def test_the_task_measures_a_stereo_file_on_its_own_channels():
     assert result.peak_dbfs == pytest.approx(expected, abs=0.01)
 
 
+# ---------------------------------------------------------------------------
+# the browser on the other side of the loopback
+# ---------------------------------------------------------------------------
+
+
+async def _call_asgi(app, path: str, origin: str | None = None):
+    """Call the app the way a browser does, and give back the headers.
+
+    The route is called through the ASGI interface, so the test needs no
+    client library and no server.
+    """
+    headers = [(b"host", b"127.0.0.1:8000")]
+    if origin is not None:
+        headers.append((b"origin", origin.encode("utf-8")))
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("utf-8"),
+        "query_string": b"",
+        "root_path": "",
+        "headers": headers,
+        "client": ("127.0.0.1", 43210),
+        "server": ("127.0.0.1", 8000),
+    }
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    await app(scope, receive, send)
+    start = next((m for m in sent if m["type"] == "http.response.start"), None)
+    return {key.decode().lower(): value.decode() for key, value in (start or {}).get("headers", [])}
+
+
+def test_the_server_lets_a_local_browser_call_it():
+    """The extension runs on another origin, so the answer has to say so.
+
+    The browser holds the extension to the hosts in the manifest, but a page
+    of the web interface on another local port is still a different origin,
+    and the engine has to allow it.
+    """
+    server = _server_module()
+    headers = asyncio.run(_call_asgi(server.app, "/api/health", "http://127.0.0.1:8137"))
+    assert headers.get("access-control-allow-origin") == "http://127.0.0.1:8137"
+
+
+def test_the_server_shuts_a_foreign_origin_out():
+    """Nothing that is not on this machine is let in through the browser."""
+    server = _server_module()
+    headers = asyncio.run(_call_asgi(server.app, "/api/health", "https://example.com"))
+    assert "access-control-allow-origin" not in headers
+
+
+def test_the_health_route_still_answers():
+    """The route the panel asks is there and it says the version."""
+    server = _server_module()
+    headers = asyncio.run(_call_asgi(server.app, "/api/health"))
+    assert headers.get("content-type", "").startswith("application/json")
+
+
 def test_the_web_page_carries_the_measurement_panel():
     server = _server_module()
     page = (server.STATIC_DIR / "index.html").read_text(encoding="utf-8")

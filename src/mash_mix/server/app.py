@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +32,18 @@ app = FastAPI(
         "Cross platform speech and text engine. Song to lyric, speech to text, "
         "text to speech and speech to speech, with Bangla first."
     ),
+)
+
+# The browser extension on the other side of the loopback calls this server,
+# and a browser applies its own rules to a call that comes from another
+# origin. Only the local origins are let in, so nothing off this machine
+# can reach the engine through the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 # Finished jobs live here until the server restarts.

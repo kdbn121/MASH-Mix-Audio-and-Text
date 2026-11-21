@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.1.5] - 2026-11-21
+
+The browser extension can reach the engine.
+
+### Added
+
+- The server answers a call from a local origin with the header that lets a
+  browser accept it. The extension on the other side of the loopback and the
+  web interface on another local port are both a different origin from the
+  engine, and a browser applies its own rules to a call that comes from one.
+  Only the local origins are let in, so nothing off this machine can reach
+  the engine through the browser.
+
+### Tests
+
+- Tests that call the engine the way a browser does, through the ASGI
+  interface, so no client library and no running server are needed. They
+  check that a local origin is allowed and that a foreign one is shut out.
+
 ## [0.1.4] - 2026-11-20
 
 The key of a file no longer depends on the sample rate of the file.
