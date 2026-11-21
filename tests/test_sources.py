@@ -333,6 +333,43 @@ def test_a_named_language_is_kept_as_it_was_named(monkeypatch):
     assert result.meta["language_source"] == "requested"
 
 
+def test_a_language_the_caller_named_carries_no_certainty(monkeypatch):
+    """A model that was told the language reports a certainty of one.
+
+    That number is not a measurement of anything, so it is not reported.
+    """
+    import mash_mix.tasks.lyrics as lyrics_module
+
+    engine = _Engine()
+    monkeypatch.setattr(lyrics_module, "pick_backend", lambda kind, preferred="auto": "faster-whisper")
+    monkeypatch.setattr("mash_mix.backends.registry.get_stt", lambda backend, model=None: engine)
+
+    result = lyrics_module.extract_lyrics(
+        AudioBuffer(np.zeros(16000 * 5, dtype=np.float32), 16000, 1),
+        language="bn-BD",
+        quality="auto",
+    )
+    assert result.meta["language_probability"] is None
+
+
+def test_a_hint_carries_no_certainty_either(monkeypatch):
+    """The page named the language, so the model was told it."""
+    import mash_mix.tasks.lyrics as lyrics_module
+
+    engine = _Engine()
+    monkeypatch.setattr(lyrics_module, "pick_backend", lambda kind, preferred="auto": "faster-whisper")
+    monkeypatch.setattr("mash_mix.backends.registry.get_stt", lambda backend, model=None: engine)
+
+    result = lyrics_module.extract_lyrics(
+        AudioBuffer(np.zeros(16000 * 5, dtype=np.float32), 16000, 1),
+        language="auto",
+        language_hint="bn",
+        quality="auto",
+    )
+    assert result.meta["language_source"] == "hint"
+    assert result.meta["language_probability"] is None
+
+
 def test_a_language_that_is_not_bangla_keeps_its_own_script(monkeypatch):
     """There is nothing to convert a Hindi or an Arabic line to."""
     import mash_mix.tasks.lyrics as lyrics_module

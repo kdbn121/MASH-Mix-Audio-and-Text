@@ -630,11 +630,15 @@ def extract_lyrics(
             name = candidate.backend
             if heard:
                 detected_language = str(heard.get("detected_language") or "")
-                if language_probability is None:
-                    language_probability = heard.get("language_probability")
                 if auto_language and not effective and detected_language:
                     effective = detected_language
                     language_source = "model"
+                    if language_probability is None:
+                        # The model worked the language out on its own here,
+                        # so the number means something. A model that was
+                        # told the language reports a certainty of one, and
+                        # that is not a measurement of anything.
+                        language_probability = heard.get("language_probability")
             break
 
     if chosen is None:

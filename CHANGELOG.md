@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.3.1] - 2026-11-21
+
+The certainty of the language is only reported when it means something.
+
+### Fixed
+
+- **A language the caller named carries no certainty.** A recogniser that was
+  told the language reports a certainty of one, and that number measures
+  nothing. The result now carries a certainty only when the model worked the
+  language out on its own, so a number in the report is always a measurement.
+
 ## [0.3.0] - 2026-11-21
 
 A link is now a source, and the language of the audio is found on its own.
