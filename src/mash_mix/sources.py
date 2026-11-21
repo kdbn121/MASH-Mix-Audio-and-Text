@@ -27,18 +27,23 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from .lang.catalogue import detect_language_from_text, resolve_entry
+from .lang.catalogue import ansi_codepage, detect_language_from_text, fallback_chain, resolve_entry
 
 __all__ = [
     "SourceInfo",
     "SourceError",
+    "SubtitleTrack",
     "have_yt_dlp",
     "fetch_audio",
     "fetch_metadata",
+    "fetch_subtitles",
+    "choose_subtitle_track",
+    "rank_subtitle_tracks",
     "is_url",
     "read_subtitle_file",
+    "decode_subtitle_bytes",
 ]
 
 #: The hosts the fetcher is meant for. Anything else is still allowed, because
@@ -64,6 +69,15 @@ KNOWN_SITES = (
     "rumble.com",
     "odysee.com",
 )
+
+
+#: How many subtitle tracks are carried around from a page. A busy page
+#: offers a track in every language under the sun.
+_MAX_SUBTITLE_TRACKS = 60
+
+#: How many tracks are tried before the run gives up on the page's own words.
+#: A site that is under load refuses a track now and then.
+_MAX_SUBTITLE_ATTEMPTS = 4
 
 
 class SourceError(RuntimeError):
@@ -114,6 +128,26 @@ class SourceInfo:
             "language": self.language,
             "subtitles": self.subtitles,
             "meta": self.meta,
+        }
+
+
+@dataclass
+class SubtitleTrack:
+    """One subtitle track that a page offers."""
+
+    path: str
+    language: str
+    raw_language: str = ""
+    automatic: bool = False
+    fmt: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "path": self.path,
+            "language": self.language,
+            "raw_language": self.raw_language,
+            "automatic": self.automatic,
+            "format": self.fmt,
         }
 
 
@@ -214,13 +248,21 @@ def _script_language(info: Dict[str, Any]) -> Tuple[str, str]:
 
 
 def _subtitle_list(info: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The subtitle tracks the page offers, as a plain list."""
+    """The subtitle tracks the page offers, as a plain list.
+
+    A busy page offers a track in every language under the sun, because the
+    page can translate its own captions. The list is cut short so the answer
+    stays a size that can be carried around. The tracks the page wrote come
+    first in the list, so the cut keeps the best ones.
+    """
     out: List[Dict[str, Any]] = []
     for key in ("subtitles", "automatic_captions"):
         tracks = info.get(key) or {}
         if not isinstance(tracks, dict):
             continue
         for lang, formats in tracks.items():
+            if len(out) >= _MAX_SUBTITLE_TRACKS:
+                return out
             entry = resolve_entry(lang)
             code = entry.iso639_1 if entry else str(lang)
             names = []
@@ -237,6 +279,209 @@ def _subtitle_list(info: Dict[str, Any]) -> List[Dict[str, Any]]:
                 }
             )
     return out
+
+
+def _track_position(raw: str, chain: List[str]) -> int:
+    """Where a track sits in the caller's chain of languages.
+
+    A track named ``bn-BD`` is a Bangla track, and a track named ``bn-en`` is
+    a Bangla track that the page made out of an English one. The exact name
+    is looked for first, and a track that only carries the language is put in
+    the plain language slot of the chain.
+    """
+    cleaned = (raw or "").strip().lower()
+    if not cleaned:
+        return len(chain) + 1
+    for index, tag in enumerate(chain):
+        if cleaned == tag.lower():
+            return index
+    base = cleaned.split("-")[0]
+    for index, tag in enumerate(chain):
+        if "-" not in tag and tag.lower() == base:
+            return index
+    return len(chain) + 1
+
+
+def rank_subtitle_tracks(
+    tracks: List[Dict[str, Any]],
+    prefer_language: str = "",
+) -> List[Dict[str, Any]]:
+    """Every subtitle track the page offers, the best one first.
+
+    The language of the track comes first, because a track in the wrong
+    language is worse than no track at all. Within one language, a track a
+    human wrote is better than one a machine wrote.
+
+    The language match uses the fallback chain, so a caller who asked for
+    ``bn-BD`` is served a ``bn-BD`` track, then a plain ``bn`` one, then an
+    ``bn-IN`` one, and a caller who asked for ``bn-IN`` is served in the same
+    order the other way round.
+    """
+    chain = fallback_chain(prefer_language) if prefer_language else []
+
+    def rank(track: Dict[str, Any]) -> Tuple[int, int]:
+        raw = str(track.get("raw_language") or track.get("language") or "")
+        machine = 1 if track.get("automatic") else 0
+        return _track_position(raw, chain), machine
+
+    return [dict(track) for track in sorted(tracks, key=rank)]
+
+
+def choose_subtitle_track(
+    tracks: List[Dict[str, Any]],
+    prefer_language: str = "",
+) -> Dict[str, Any]:
+    """The subtitle track that best serves a caller.
+
+    The order is the one of :func:`rank_subtitle_tracks`: the language that
+    was asked for comes first, and a track a human wrote beats one a machine
+    wrote.
+    """
+    ordered = rank_subtitle_tracks(tracks, prefer_language)
+    return ordered[0] if ordered else {}
+
+
+def fetch_subtitles(
+    url: str,
+    target_dir: str,
+    *,
+    tracks: Optional[List[Dict[str, Any]]] = None,
+    languages: Optional[List[str]] = None,
+    prefer_language: str = "",
+    timeout: int = 300,
+) -> Optional[SubtitleTrack]:
+    """Fetch a subtitle track the page offers, without fetching the sound.
+
+    A page that carries its own subtitles is the best possible source of
+    lyrics: the words are right, the timings are right and nothing has to be
+    recognised. When the page offers them, the engine uses them.
+
+    The tracks are tried in the order of :func:`rank_subtitle_tracks`, and the
+    first one that arrives is the one that is used. A site that refuses one
+    track, which a busy site does when it is under load, does not stop the
+    run: the next best track is tried.
+
+    Returns ``None`` when no track could be read, which is not an error: the
+    caller then reads the audio.
+    """
+    if not is_url(url):
+        raise SourceError(f"'{url}' is not a web address.")
+
+    folder = Path(target_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    ranked = rank_subtitle_tracks(list(tracks or []), prefer_language)
+    chain = fallback_chain(prefer_language)
+
+    if chain:
+        # The language is known, so only a track in that language will do. A
+        # track in another language is worse than no track at all.
+        wanted = [
+            track
+            for track in ranked
+            if _track_position(
+                str(track.get("raw_language") or track.get("language") or ""), chain
+            )
+            < len(chain) + 1
+        ]
+    else:
+        # The language is not known, so any track will do and the best one is
+        # tried first.
+        wanted = list(ranked)
+
+    for name in languages or []:
+        if not str(name):
+            continue
+        if not any(str(item.get("raw_language")) == str(name) for item in wanted):
+            wanted.append({"raw_language": str(name), "automatic": False})
+    if not wanted:
+        return None
+
+    # A site that is under load refuses a track now and then, so a few are
+    # tried before the run gives up on the page's own words.
+    last_error = ""
+    for track in wanted[:_MAX_SUBTITLE_ATTEMPTS]:
+        found, error = _download_one_track(
+            url,
+            folder,
+            str(track.get("raw_language") or ""),
+            automatic=bool(track.get("automatic")),
+            timeout=timeout,
+        )
+        if found is not None:
+            return found
+        if error:
+            last_error = error
+    if last_error:
+        raise SourceError(last_error)
+    return None
+
+
+def _download_one_track(
+    url: str,
+    folder: Path,
+    raw_language: str,
+    *,
+    automatic: bool,
+    timeout: int,
+) -> Tuple[Optional[SubtitleTrack], str]:
+    """Fetch one named subtitle track and describe the file that arrived.
+
+    The second value is the reason the track did not arrive, when it did not.
+    """
+    if not raw_language:
+        return None, ""
+
+    args = [
+        "--skip-download",
+        "--no-warnings",
+        "--no-playlist",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        raw_language,
+        "--sub-format",
+        "srt/vtt/best",
+        "--retries",
+        "3",
+        "--output",
+        str(folder / "subs.%(ext)s"),
+        url,
+    ]
+    try:
+        _run(args, timeout=timeout)
+    except SourceError as exc:
+        return None, str(exc)
+
+    candidates = sorted(folder.glob("subs.*"))
+    if not candidates:
+        return None, ""
+
+    chosen = candidates[0]
+    for item in candidates:
+        if item.suffix.lower() in (".srt", ".vtt"):
+            chosen = item
+            break
+
+    language = ""
+    stem = chosen.name
+    if stem.lower().startswith("subs."):
+        name = stem[5:]
+        for suffix in (".srt", ".vtt", ".ass", ".ttml", ".json3", ".srv1", ".sbv"):
+            if name.lower().endswith(suffix):
+                name = name[: -len(suffix)]
+                break
+        entry = resolve_entry(name)
+        language = entry.iso639_1 if entry else name
+
+    track = SubtitleTrack(
+        path=str(chosen),
+        language=language,
+        raw_language=raw_language,
+        automatic=automatic,
+        fmt=chosen.suffix.lstrip(".").lower(),
+    )
+    return track, ""
 
 
 def fetch_metadata(url: str, *, timeout: int = 120) -> SourceInfo:
@@ -349,7 +594,48 @@ def fetch_audio(url: str, target_dir: str, *, timeout: int = 900) -> SourceInfo:
     return source
 
 
-def read_subtitle_file(path: str) -> str:
+def decode_subtitle_bytes(raw: bytes, language: Optional[str] = None) -> str:
+    """Decode the bytes of a subtitle file into text.
+
+    A subtitle file may be written in UTF-8, in UTF-16 with a byte order mark,
+    or in the legacy code page of its own language. The code page of the
+    language is used when the file is not UTF-8, so a file from an older page
+    comes back readable instead of full of broken marks.
+
+    A broken byte is replaced rather than raising, because one bad byte in a
+    long file must not cost the whole lyric.
+    """
+    if not raw:
+        return ""
+
+    # A byte order mark says exactly how the file is written.
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        try:
+            return raw.decode("utf-16")
+        except UnicodeDecodeError:
+            pass
+
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+
+    codepage = ansi_codepage(language) if language else None
+    if codepage:
+        try:
+            return raw.decode(f"cp{codepage}")
+        except (UnicodeDecodeError, LookupError):
+            pass
+
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def read_subtitle_file(path: str, language: Optional[str] = None) -> str:
     """Read a subtitle file as text, whatever encoding it was written in.
 
     A subtitle that a site offers may be in UTF-8, and a subtitle that came
@@ -357,14 +643,4 @@ def read_subtitle_file(path: str) -> str:
     and a broken byte is replaced rather than raising.
     """
     target = Path(path)
-    raw = target.read_bytes()
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        pass
-    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
+    return decode_subtitle_bytes(target.read_bytes(), language)

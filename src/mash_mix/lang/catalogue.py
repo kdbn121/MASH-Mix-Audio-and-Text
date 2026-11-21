@@ -32,13 +32,17 @@ __all__ = [
     "LanguageEntry",
     "LANGUAGES",
     "SCRIPT_LANGUAGES",
+    "REGIONAL_VARIANTS",
     "resolve_entry",
+    "resolve_tag",
     "iso_for",
     "entry_for",
     "detect_script",
     "detect_language_from_text",
     "script_language",
     "ansi_codepage",
+    "fallback_chain",
+    "model_language",
     "list_entries",
 ]
 
@@ -282,6 +286,24 @@ LANGUAGES: Tuple[LanguageEntry, ...] = (
         "",
     ),
     _e(
+        "Nepali",
+        "ne",
+        "Devanagari",
+        ("nepali", "ne"),
+        None,
+        "NP",
+        "Shares the Devanagari script with Hindi and Marathi.",
+    ),
+    _e(
+        "Sinhala",
+        "si",
+        "Sinhala",
+        ("sinhala", "sinhalese", "si"),
+        None,
+        "LK",
+        "",
+    ),
+    _e(
         "Gujarati",
         "gu",
         "Gujarati",
@@ -481,6 +503,41 @@ SCRIPT_LANGUAGES: Dict[str, Tuple[str, ...]] = {
     "Han": ("zh", "ja"),
 }
 
+#: The regional forms of a language, the usual one first.
+#:
+#: A language is one thing in the catalogue and a region is a way of saying
+#: which form of it was meant. Bangla is written ``bn-BD`` in Bangladesh and
+#: ``bn-IN`` in India, and a site may name either one. The pair is kept
+#: together so that a request for one region can fall back on the other, in
+#: both directions, when the exact one is not available.
+REGIONAL_VARIANTS: Dict[str, Tuple[str, ...]] = {
+    "bn": ("bn-BD", "bn-IN"),
+    "en": ("en-US", "en-GB"),
+    "zh": ("zh-CN", "zh-TW"),
+    "pt": ("pt-BR", "pt-PT"),
+    "es": ("es-ES", "es-MX"),
+    "ar": ("ar-SA", "ar-EG"),
+    "hi": ("hi-IN", "hi-NP"),
+    "ur": ("ur-PK", "ur-IN"),
+    "fa": ("fa-IR", "fa-AF"),
+    "tr": ("tr-TR", "tr-CY"),
+    "de": ("de-DE", "de-AT", "de-CH"),
+    "fr": ("fr-FR", "fr-CA", "fr-BE"),
+    "id": ("id-ID", "id-MY"),
+    "sw": ("sw-KE", "sw-TZ"),
+    "ta": ("ta-IN", "ta-LK"),
+    "te": ("te-IN", "te-LK"),
+    "kn": ("kn-IN", "kn-LK"),
+    "ml": ("ml-IN", "ml-LK"),
+    "mr": ("mr-IN",),
+    "gu": ("gu-IN",),
+    "pa": ("pa-IN",),
+    "ne": ("ne-NP",),
+    "si": ("si-LK",),
+    "th": ("th-TH",),
+    "vi": ("vi-VN",),
+}
+
 # The unicode blocks of the scripts. Every range is a pair of code points.
 _SCRIPT_RANGES: Tuple[Tuple[str, int, int], ...] = (
     ("Latin", 0x0041, 0x024F),
@@ -541,6 +598,90 @@ def iso_for(query: str) -> Optional[str]:
     """The ISO 639-1 code of a language, or ``None`` when it is not known."""
     entry = resolve_entry(query)
     return entry.iso639_1 if entry else None
+
+
+def _canonical_tag(query: str) -> str:
+    """A tag with a lowercase language and an uppercase region.
+
+    ``bn-bd`` and ``BN_bd`` both come back as ``bn-BD``, which is how the
+    region is written everywhere else in this package.
+    """
+    cleaned = (query or "").strip().replace("_", "-")
+    if not cleaned:
+        return ""
+    parts = [part for part in cleaned.split("-") if part]
+    if not parts:
+        return ""
+    head = parts[0].lower()
+    rest = [part.upper() for part in parts[1:]]
+    return "-".join([head, *rest])
+
+
+def resolve_tag(query: str) -> str:
+    """The canonical tag of a language, with the region kept when one was asked for.
+
+    ``Bangla`` becomes ``bn`` and ``bn-BD`` stays ``bn-BD``. An unknown tag
+    comes back empty, and ``auto`` is empty on purpose, because auto means the
+    language is not known yet.
+    """
+    cleaned = _canonical_tag(query)
+    if not cleaned or cleaned.lower() == "auto":
+        return ""
+    entry = resolve_entry(cleaned)
+    if entry is None:
+        return ""
+    if "-" in cleaned and cleaned.split("-")[0] == entry.iso639_1:
+        return cleaned
+    return entry.iso639_1
+
+
+def fallback_chain(query: str) -> List[str]:
+    """The tags to try for a language, from the exact one to the nearest.
+
+    The chain runs in both directions. A regional tag falls back on the plain
+    language and then on the other region, and the plain language falls back
+    on its regions, so ``bn-BD`` gives ``bn-BD``, ``bn``, ``bn-IN`` and ``bn``
+    gives ``bn``, ``bn-BD``, ``bn-IN``.
+
+    This is what lets a site that names ``bn-IN`` be served by a track filed
+    under ``bn-BD`` and the other way round, without either side having to
+    know that the other exists.
+    """
+    cleaned = _canonical_tag(query)
+    if not cleaned or cleaned.lower() == "auto":
+        return []
+    base = cleaned.split("-")[0]
+    entry = _INDEX.get(base)
+    if entry is None:
+        return [cleaned]
+
+    variants = REGIONAL_VARIANTS.get(entry.iso639_1, ())
+    chain: List[str] = [cleaned]
+    if "-" in cleaned:
+        # A regional tag. The plain language comes next, because a model and a
+        # plain subtitle track both speak it.
+        if entry.iso639_1 not in chain:
+            chain.append(entry.iso639_1)
+    for variant in variants:
+        if variant not in chain:
+            chain.append(variant)
+    return chain
+
+
+def model_language(query: str) -> str:
+    """The tag a speech model understands, from any regional or plain tag.
+
+    Every Whisper family model is taught one code per language, so a request
+    for ``pt-BR`` or ``bn-BD`` has to reach the model as ``pt`` or ``bn``.
+    The region is not lost, because the caller keeps the tag it asked for and
+    the fallback chain knows how to get back to it.
+    """
+    chain = fallback_chain(query)
+    for tag in chain:
+        entry = resolve_entry(tag)
+        if entry:
+            return entry.iso639_1
+    return ""
 
 
 def script_language(script: str) -> Optional[str]:

@@ -45,6 +45,57 @@ lyrics = engine.lyrics("bangla song.mp3")
 engine.write(lyrics, "out", formats=["srt", "txt", "vtt", "lrc"])
 ```
 
+### From a link
+
+A link is a way of naming a piece of audio, so it can be used where a file was used.
+
+```python
+from mash_mix.tasks.lyrics import extract_lyrics_from_url
+
+outcome = extract_lyrics_from_url(
+    "https://www.youtube.com/watch?v=296Gi_nnbho",
+    "out",
+    language="auto",
+)
+
+result = outcome["result"]
+print(result.meta["lyrics_source"])   # site subtitles
+print(result.language)                # bn-BD
+```
+
+The fetching is done with `yt-dlp`, an optional dependency, so the engine imports and works
+without it and only a request for a link needs it.
+
+## The subtitles the page carries
+
+A page that publishes its own subtitles is the best source of lyrics there is. The words are
+right, the timings are right, and nothing has to be recognised. The engine asks for the track
+before it reads the audio, and uses it when the page has one.
+
+| Step | What happens |
+|---|---|
+| 1. Read the page | The fetcher reports the tracks the page offers, with the language of each |
+| 2. Rank them | The language that was asked for comes first, then the plain language, then the other region |
+| 3. Fetch one | The first track that arrives is used. A site that refuses a track does not stop the run |
+| 4. Read it | SRT and WebVTT are both read. The cue number, the identifier, the voice labels, the styling and the karaoke marks are removed |
+| 5. Work out the language | The track names its own language, so it is known rather than guessed |
+| 6. Work out the region | A Bangla text carries `bn-BD` or `bn-IN`, read out of the text itself |
+
+A track in the wrong language is never used. A track in another language is worse than no track
+at all, so the engine falls back on reading the audio rather than on the wrong words.
+
+```python
+from mash_mix.export.subtitles import parse_subtitles
+from mash_mix.sources import read_subtitle_file
+
+text = read_subtitle_file("subs.bn.srt", language="bn")
+lines = parse_subtitles(text)
+```
+
+The reader handles both spellings of a timestamp, with or without the hours, and it reads a file
+written in the code page of its own language. A file with a byte order mark is read as what the
+mark says it is.
+
 ## The stages
 
 | Stage | What happens | Why |

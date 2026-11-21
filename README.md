@@ -17,7 +17,9 @@ pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH
 - [Quick start](#quick-start)
 - [Song to lyric](#song-to-lyric)
 - [A link instead of a file](#a-link-instead-of-a-file)
+- [The subtitles the page already carries](#the-subtitles-the-page-already-carries)
 - [The language of the audio](#the-language-of-the-audio)
+- [The report of a run](#the-report-of-a-run)
 - [The Bangla layer](#the-bangla-layer)
 - [Command line](#command-line)
 - [Web interface and API](#web-interface-and-api)
@@ -420,6 +422,71 @@ The audio is written into the working folder, and the lyric files are written ne
 
 ---
 
+## The subtitles the page already carries
+
+A page that publishes its own subtitles is the best source of lyrics there is. The words
+are right, the timings are right, and nothing has to be recognised. The engine asks for
+the track before it reads the audio, and uses it when the page has one.
+
+```bash
+mash-mix lyrics "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -o out --lang auto
+```
+
+```
+language=en lines=61 duration=213.0s elapsed=8.8s model=unknown lyrics_from=site subtitles
+```
+
+No model was loaded, nothing was recognised, and the lines came back in the order and at
+the timings the page published them. A run that reads the audio instead says so:
+
+```
+language=bn-IN lines=24 duration=265.3s elapsed=929.1s model=large-v3 lyrics_from=speech model
+```
+
+**How the track is chosen.** The language the caller asked for comes first, because a
+track in the wrong language is worse than no track at all. Within one language, a track a
+human wrote beats one a machine wrote.
+
+**How the region is found.** Bangla is published as `bn-BD` in Bangladesh and `bn-IN` in
+India, and a page may name either one, or neither. The engine keeps a chain of tags for
+every language and walks it in both directions:
+
+| Asked for | The chain it tries |
+|---|---|
+| `bn-BD` | `bn-BD`, `bn`, `bn-IN` |
+| `bn-IN` | `bn-IN`, `bn`, `bn-BD` |
+| `bn` | `bn`, `bn-BD`, `bn-IN` |
+| `en` | `en`, `en-US`, `en-GB` |
+
+A page that carries `bn-IN` serves a caller who asked for `bn-BD`, and the other way
+round. A page that publishes a track it made out of another one, such as `bn-en`, is
+found by the language it is written in, not by the whole name.
+
+```python
+from mash_mix.lang.catalogue import fallback_chain, model_language
+
+fallback_chain("bn-BD")   # ['bn-BD', 'bn', 'bn-IN']
+model_language("pt-BR")   # 'pt', because a model is taught one code per language
+```
+
+**Reading a subtitle file.** SRT and WebVTT are both read, because a site publishes
+both. The cue number, the cue identifier, the voice labels, the styling and the karaoke
+marks are all removed, and the words are left. A file written in the code page of its own
+language is read with that code page, and a file with a byte order mark is read as what
+the mark says it is.
+
+```python
+from mash_mix.export.subtitles import parse_subtitles
+
+lines = parse_subtitles(open("subs.en.vtt", encoding="utf-8").read())
+```
+
+**The audio is fetched either way.** The panel plays the song it wrote the lyrics for,
+so the engine puts a copy of the audio on this machine even when the words came from the
+page. Nothing leaves this machine.
+
+---
+
 ## The language of the audio
 
 The language is worked out in three steps, and each step is reported so a guess is never
@@ -458,6 +525,45 @@ transliteration apply to Bangla only.
 The catalogue of the languages the engine knows lives in `mash_mix.lang.catalogue`. It
 holds the ISO 639-1 code, the aliases a person types, the writing script and the Windows
 code page of the legacy files of each language.
+
+**A region is not a language to a model.** A model is taught one code per language, so a
+request for `pt-BR` reaches it as `pt`. The region the caller asked for is not lost: it
+stays in the report, and the fallback chain of the catalogue knows how to get back to it.
+
+---
+
+## The report of a run
+
+Every run leaves a record of what it did, step by step, so a run can be looked at
+afterwards without guessing what happened.
+
+```bash
+mash-mix lyrics "https://www.youtube.com/watch?v=AU0mxhZcL1w" -o out \
+    --report out/report.json
+```
+
+```json
+{
+  "language": "bn-IN",
+  "backend": "site-subtitles",
+  "meta": {
+    "lyrics_source": "site subtitles",
+    "language_requested": "auto",
+    "language_effective": "bn",
+    "language_source": "declared",
+    "pipeline": {
+      "steps": [
+        { "step": "metadata", "ok": true, "subtitle_tracks": 60 },
+        { "step": "subtitles", "ok": true, "language": "bn", "lines": 24 },
+        { "step": "audio", "ok": true, "duration": 265.0 }
+      ]
+    }
+  }
+}
+```
+
+Every step says whether it worked and why, so a run that fell back on the model says so
+rather than looking like a run that did not need one.
 
 ---
 

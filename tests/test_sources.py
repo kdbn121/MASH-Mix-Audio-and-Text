@@ -425,6 +425,7 @@ def test_a_link_becomes_the_lyric_files(monkeypatch, tmp_path):
             audio_path=str(audio),
         )
 
+    monkeypatch.setattr("mash_mix.sources.fetch_metadata", lambda url, **kwargs: fake_fetch(url, ""))
     monkeypatch.setattr("mash_mix.sources.fetch_audio", fake_fetch)
 
     outcome = lyrics_module.extract_lyrics_from_url(

@@ -1,13 +1,18 @@
 # SPDX-License-Identifier: MIT | Copyright (c) 2026 MASH (Khaled Bhuiyan)
-"""Subtitle exporters: SRT, WebVTT, LRC and ASS.
+"""Subtitle exporters and readers: SRT, WebVTT, LRC and ASS.
 
 SRT is the format the lyric download button produces, so it is the one that
 gets the most care: real millisecond timestamps, blank line between cues, and
 text wrapped so a subtitle never runs off the screen.
+
+The reader lives here too, because a subtitle file that arrives from a site
+has to be read before it can be written back out in the format the caller
+asked for. Sites publish both SRT and WebVTT, and both are read here.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Iterable, List, Optional, Sequence
 
 from ..types import LyricLine, Segment
@@ -22,7 +27,29 @@ __all__ = [
     "to_ass",
     "write_subtitles",
     "wrap_text",
+    "parse_timestamp",
+    "parse_subtitles",
 ]
+
+#: A timestamp of a cue. The hours are optional, because a short clip may
+#: write its cues as ``MM:SS,mmm``.
+_TIMESTAMP_RE = re.compile(
+    r"(?:(?P<h>\d{1,3}):)?(?P<m>\d{1,2}):(?P<s>\d{1,2})(?:[.,](?P<ms>\d{1,3}))?"
+)
+
+#: A markup tag inside a cue. Voice labels, styling and karaoke marks are all
+#: removed, and a plain ``<3`` in a lyric is left alone.
+_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>|<\d{2}:\d{2}(?::\d{2})?[.,]\d{1,3}>")
+
+#: The entities a subtitle file may carry.
+_ENTITIES = (
+    ("&amp;", "&"),
+    ("&lt;", "<"),
+    ("&gt;", ">"),
+    ("&quot;", '"'),
+    ("&apos;", "'"),
+    ("&nbsp;", " "),
+)
 
 
 def _ms(value: float) -> int:
@@ -232,3 +259,92 @@ def segments_to_lines(segments: Sequence[Segment]) -> List[LyricLine]:
         for seg in segments
         if seg.text and seg.text.strip()
     ]
+
+
+def parse_timestamp(value: str) -> Optional[float]:
+    """Read one subtitle timestamp and return it in seconds.
+
+    Both spellings are read: ``00:01:02,500`` as SRT writes it and
+    ``00:01:02.500`` as WebVTT writes it. The hours may be left out, and a
+    fraction of a second may be written with one or two digits.
+    """
+    match = _TIMESTAMP_RE.search(value or "")
+    if not match:
+        return None
+    try:
+        hours = int(match.group("h") or 0)
+        minutes = int(match.group("m") or 0)
+        seconds = int(match.group("s") or 0)
+        raw_ms = match.group("ms") or ""
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return None
+    # A fraction written as ".5" means half a second, so the digits are read
+    # from the right.
+    millis = int(raw_ms.ljust(3, "0")) if raw_ms else 0
+    return hours * 3600.0 + minutes * 60.0 + seconds + millis / 1000.0
+
+
+def _cue_times(row: str) -> tuple:
+    """The start and the end of a cue timing line."""
+    if "-->" not in row:
+        return None, None
+    left, _, right = row.partition("-->")
+    start = parse_timestamp(left)
+    end = parse_timestamp(right)
+    return start, end
+
+
+def _clean_cue_text(raw: str) -> str:
+    """The readable text of a cue, without the markup a site may wrap it in."""
+    text = _TAG_RE.sub("", raw)
+    for entity, character in _ENTITIES:
+        text = text.replace(entity, character)
+    rows = [" ".join(row.split()) for row in text.split("\n")]
+    return " ".join(row for row in rows if row)
+
+
+def parse_subtitles(text: str) -> List[LyricLine]:
+    """Read SRT or WebVTT text and return the timed lines.
+
+    Both formats are read by the same pass, because both are built out of the
+    same thing: a timing line that holds an arrow, and the words that follow
+    it. The cue number of an SRT file, the identifier of a WebVTT cue, the
+    voice labels, the styling and the karaoke marks are all removed, and the
+    words are left.
+
+    A file that is not a subtitle file at all gives an empty list rather than
+    an error, because the caller can always fall back on reading the audio.
+    """
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
+    if not raw.strip():
+        return []
+
+    rows = raw.split("\n")
+    total = len(rows)
+    out: List[LyricLine] = []
+    index = 0
+    while index < total:
+        row = rows[index]
+        if "-->" not in row:
+            index += 1
+            continue
+        start, end = _cue_times(row)
+        if start is None:
+            index += 1
+            continue
+        body: List[str] = []
+        index += 1
+        while index < total:
+            following = rows[index]
+            if not following.strip():
+                break
+            if "-->" in following:
+                # The next cue starts here, so this one ends here.
+                break
+            body.append(following)
+            index += 1
+        words = _clean_cue_text("\n".join(body))
+        if not words:
+            continue
+        out.append(LyricLine(start=start, end=max(float(end or start), start), text=words))
+    return out

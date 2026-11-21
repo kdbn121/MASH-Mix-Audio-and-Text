@@ -30,11 +30,11 @@ Extract lyrics from a song or a spoken track.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `audio` | required | The audio or video file. Any format, any length |
+| `audio` | required | The audio or video file. Any format, any length. A web address is accepted too |
 | `-o`, `--output-dir` | `lyrics-out` | Where to write the files |
 | `--stem` | the title, or `lyrics` | The base name for the written files |
 | `--format` | `srt` and `txt` | The output format. Repeat the flag for more than one. One of `srt`, `txt`, `vtt`, `lrc`, `json` |
-| `--lang`, `--language` | `bn-BD` | The language tag. `bn`, `bn-BD`, `bn-IN` |
+| `--lang`, `--language` | `auto` | The language tag. `auto` finds the language on its own. Any ISO 639-1 code, and `bn-BD` or `bn-IN` for a region |
 | `--script` | `bangla` | The writing system of the lines. `bangla` or `banglish` |
 | `--backend` | `auto` | The speech to text backend |
 | `--model` | the backend default | The model id for the backend |
@@ -48,6 +48,7 @@ Extract lyrics from a song or a spoken track.
 | `--prompt` | none | An initial prompt to guide the recogniser |
 | `--max-repeats` | `2` | How many consecutive identical lines to keep before they are dropped |
 | `--print` | off | Print the lyrics to the terminal |
+| `--report` | none | Write a JSON report of the whole pipeline to this file |
 
 ```bash
 mash-mix lyrics "bangla song.mp3" -o out --format srt --format txt --lang bn-BD
@@ -57,6 +58,43 @@ mash-mix lyrics "bangla song.mp3" -o out --format srt --format txt --lang bn-BD
 out/lyrics.srt
 out/lyrics.txt
 ```
+
+### A link instead of a file
+
+The argument can be a web address. The engine fetches the audio behind it with
+`yt-dlp`, which is an optional dependency, and reads it exactly like a file that was dropped
+in. The engine is what reaches the internet, never the browser.
+
+```bash
+mash-mix lyrics "https://www.youtube.com/watch?v=AU0mxhZcL1w" -o out --lang auto
+```
+
+```
+language=bn-BD lines=45 duration=232.0s elapsed=9.8s model=unknown lyrics_from=site subtitles
+```
+
+`lyrics_from` says where the words came from. `site subtitles` means the page carried its own
+subtitles and the engine used them, with no model loaded at all. `speech model` means the audio
+was read by a recogniser.
+
+The report of the run is written with `--report`:
+
+```bash
+mash-mix lyrics "https://www.youtube.com/watch?v=AU0mxhZcL1w" -o out --report out/report.json
+```
+
+```json
+{
+  "steps": [
+    { "step": "metadata", "ok": true, "subtitle_tracks": 60 },
+    { "step": "subtitles", "ok": true, "language": "bn", "lines": 45 },
+    { "step": "audio", "ok": true, "duration": 232.0 }
+  ]
+}
+```
+
+Every step says whether it worked and why, so a run that fell back on the model says so rather
+than looking like a run that did not need one.
 
 The base name comes from `--stem`, then from `--title`, then it is `lyrics`. A progress line goes to standard error:
 

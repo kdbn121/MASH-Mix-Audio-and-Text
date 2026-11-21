@@ -233,6 +233,100 @@ curl -X POST http://localhost:8000/api/lyrics \
 
 An error returns status 500 with the message in `detail`.
 
+## POST /api/lyrics/url
+
+Fetch the audio behind a link and get the same lyric lines and download links.
+
+The engine does the fetching, so the browser never touches the site. The body is multipart
+form data.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `url` | string | required | The web address of the audio |
+| `language` | string | `auto` | The language tag. `auto` finds the language on its own |
+| `script` | string | `bangla` | The writing system: `bangla` or `banglish` |
+| `title` | string | none | The title written into the file header |
+| `artist` | string | none | The artist written into the file header |
+| `separate_vocals` | boolean | `false` | Pull the vocal stem out before recognition |
+| `backend` | string | `auto` | The speech to text backend |
+| `model` | string | none | The model id for the backend |
+| `quality` | string | `auto` | Which model to reach for: `auto`, `best` or `fast` |
+
+```bash
+curl -X POST http://localhost:8000/api/lyrics/url \
+  -F "url=https://www.youtube.com/watch?v=AU0mxhZcL1w" \
+  -F "language=auto" \
+  -F "script=bangla"
+```
+
+```json
+{
+  "job_id": "a1b2c3d4e5f6",
+  "language": "bn-BD",
+  "lyrics_source": "site subtitles",
+  "duration": 232.0,
+  "title": "Bolte Bolte Cholte Cholte",
+  "artist": "IMRAN MAHMUDUL",
+  "source": {
+    "url": "https://www.youtube.com/watch?v=AU0mxhZcL1w",
+    "title": "Bolte Bolte Cholte Cholte",
+    "uploader": "IMRAN MAHMUDUL",
+    "duration": 232.0,
+    "extractor": "Youtube",
+    "declared_language": "bn",
+    "language_source": "declared",
+    "language": "bn",
+    "script": "Bengali",
+    "subtitles": [],
+    "size_bytes": 44575706
+  },
+  "text": "বলতে যে মনে হয়\nবলতে তবু দেয় না হৃদয়",
+  "lines": [],
+  "meta": {
+    "lyrics_source": "site subtitles",
+    "language_requested": "auto",
+    "language_effective": "bn",
+    "language_source": "declared",
+    "pipeline": {
+      "steps": [
+        { "step": "metadata", "ok": true, "subtitle_tracks": 60 },
+        { "step": "subtitles", "ok": true, "language": "bn", "lines": 45 },
+        { "step": "audio", "ok": true, "duration": 232.0 }
+      ]
+    }
+  },
+  "audio": "/api/lyrics/a1b2c3d4e5f6/audio",
+  "downloads": {
+    "srt": "/api/lyrics/a1b2c3d4e5f6/download/srt",
+    "txt": "/api/lyrics/a1b2c3d4e5f6/download/txt",
+    "vtt": "/api/lyrics/a1b2c3d4e5f6/download/vtt",
+    "lrc": "/api/lyrics/a1b2c3d4e5f6/download/lrc"
+  }
+}
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `lyrics_source` | string | `site subtitles` when the page carried its own words, `speech model` when the audio was read |
+| `source` | object | What the page said about itself: title, uploader, duration, extractor, the language it named, the script of the title and the subtitle tracks it offers |
+| `meta.pipeline` | object | Every step of the run, with the reason for each one that did not work |
+| `audio` | string | The route that serves the copy of the audio on this machine |
+
+A text that is not a web address returns status 400. A page that cannot be fetched returns
+status 502 with the message in `detail`.
+
+## GET /api/lyrics/{job_id}/audio
+
+The audio of a song that was fetched from a link. It is the copy the engine put on this
+machine, so a panel can play the song it wrote the lyrics for without anything travelling
+anywhere.
+
+```bash
+curl -o song.wav http://localhost:8000/api/lyrics/a1b2c3d4e5f6/audio
+```
+
+A job with no audio returns status 404.
+
 ## GET /api/lyrics/{job_id}/download/{fmt}
 
 Download a finished lyric file. The format is one of `srt`, `txt`, `vtt` or `lrc`.

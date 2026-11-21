@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.4.0] - 2026-11-21
+
+The subtitles a page already carries are used, and a region falls back on its twin.
+
+### Added
+
+- **The subtitles the page carries are used instead of a model.** A page that
+  publishes its own subtitles is the best source of lyrics there is: the words
+  are right, the timings are right, and nothing has to be recognised. The
+  engine asks for the track before it reads the audio, and a run that used it
+  says so in `meta["lyrics_source"]`. On a live test of a page with sixty one
+  cues the run finished with no model loaded at all.
+- **A subtitle reader.** `mash_mix.export.subtitles.parse_subtitles` reads SRT
+  and WebVTT, because a site publishes both. The cue number, the cue
+  identifier, the voice labels, the styling and the karaoke marks are removed,
+  and the words are left. `parse_timestamp` reads both spellings of a
+  timestamp, with or without the hours.
+- **A subtitle file is read in the code page of its own language.** A file
+  written in the code page of its language is read with that code page, and a
+  file with a byte order mark is read as what the mark says it is.
+- **The regional fallback.** The catalogue keeps a chain of tags for every
+  language and walks it in both directions, so `bn-BD` falls back on `bn` and
+  then on `bn-IN`, and `bn-IN` falls back on `bn` and then on `bn-BD`. A page
+  that carries one region serves a caller who asked for the other one.
+- **The report of a run.** `mash-mix lyrics --report` writes a JSON report of
+  the whole pipeline, step by step, with the reason for every step that did
+  not work. The same record is in `meta["pipeline"]` for every caller.
+- **Nepali and Sinhala** joined the international catalogue.
+
+### Fixed
+
+- **A regional tag no longer reaches a model as it is.** A model is taught one
+  code per language, so a request for `pt-BR` used to reach it as `pt-BR`,
+  which it does not know. The language now reaches the model as `pt`, and the
+  region the caller asked for stays in the report.
+- **A translated subtitle track is found by the language it is written in.** A
+  page names the track it made out of another one `bn-en`, and it was not
+  matched by a request for Bangla. It is now.
+
 ## [0.3.1] - 2026-11-21
 
 The certainty of the language is only reported when it means something.

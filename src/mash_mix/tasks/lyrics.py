@@ -17,6 +17,7 @@ makes the difference:
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..types import AudioBuffer, LyricLine, LyricsResult, Segment
@@ -458,6 +459,44 @@ def _detect_language(engine: Any, buffer: AudioBuffer) -> Tuple[str, Optional[fl
     return str(code or ""), probability
 
 
+def _resolve_result_language(
+    full_text: str,
+    effective: Optional[str],
+    language_source: str,
+    detected_language: str = "",
+) -> Tuple[str, Any]:
+    """The language tag of a result, and the regional reading of its text.
+
+    A text that came back in the Bengali script is Bangla, whatever the
+    detector said about it. A detector that guesses wrong on a sung track
+    must not cost the caller the Bangla repair and the region.
+
+    A Bangla text carries a region, Bangladesh or India, and the text decides
+    which one. A text in any other language carries the language itself and
+    nothing more.
+    """
+    from ..lang.dialect import detect_region
+    from ..lang.normalize import is_bangla_text
+    from ..lang.registry import is_bangla
+
+    bangla_requested = is_bangla(effective) if effective else False
+    if not bangla_requested and is_bangla_text(full_text):
+        bangla_requested = True
+
+    asked_for = language_source == "requested"
+    if bangla_requested and not asked_for:
+        # The text itself says Bangla, so the region comes from the text.
+        detected = detect_region(full_text, default="bn-BD")
+        result_language = detected.tag
+    elif effective and is_bangla(effective):
+        detected = detect_region(full_text, default=effective)
+        result_language = detected.tag
+    else:
+        detected = detect_region(full_text, default="bn-BD")
+        result_language = effective or detected_language or "und"
+    return result_language, detected
+
+
 def extract_lyrics(
     audio: Any,
     *,
@@ -517,8 +556,7 @@ def extract_lyrics(
         that answer is better than a guess.
     """
     from ..backends.registry import get_stt
-    from ..lang.catalogue import resolve_entry
-    from ..lang.dialect import detect_region
+    from ..lang.catalogue import model_language, resolve_entry
     from ..lang.normalize import clean_asr_text, is_bangla_text, normalize_bangla
     from ..lang.registry import is_bangla
     from ..lang.script import needs_script_repair, repair_to_bangla
@@ -605,7 +643,11 @@ def extract_lyrics(
                 read_segments, read_chunks, heard = _recognise(
                     engine,
                     buffer,
-                    language=effective,
+                    # A model is taught one code per language, so a regional
+                    # tag such as pt-BR has to reach it as pt. The region the
+                    # caller asked for is not lost, because it is kept in the
+                    # report and in the fallback chain.
+                    language=(model_language(effective) or effective) if effective else None,
                     initial_prompt=initial_prompt,
                     hotwords=hotwords,
                     engine_vad=engine_vad,
@@ -693,37 +735,24 @@ def extract_lyrics(
 
     full_text = "\n".join(line.text for line in lines)
 
-    # A text that came back in the Bengali script is Bangla, whatever the
-    # detector said about it. A detector that guesses wrong on a sung track
-    # must not cost the caller the Bangla repair and the region.
-    if not bangla_requested and is_bangla_text(full_text):
-        bangla_requested = True
-
     # One decision for the whole document: is this song written in romanised
     # Bangla, and which script should the lines come back in.
     from ..lang.translit import apply_script, resolve_script_target
 
     target_script = ""
-    if bangla_requested:
+    if bangla_requested or is_bangla_text(full_text):
         target_script = resolve_script_target(full_text, script)
         if target_script:
             for line in lines:
                 line.text = apply_script(line.text, target_script)
             full_text = "\n".join(line.text for line in lines)
 
-    # A Bangla text carries a region, Bangladesh or India. A text in any other
-    # language carries the language itself and nothing more.
-    asked_for = language_source == "requested"
-    if bangla_requested and not asked_for:
-        # The text itself says Bangla, so the region comes from the text.
-        detected = detect_region(full_text, default="bn-BD")
-        result_language = detected.tag
-    elif effective and is_bangla(effective):
-        detected = detect_region(full_text, default=effective)
-        result_language = detected.tag
-    else:
-        detected = detect_region(full_text, default="bn-BD")
-        result_language = effective or detected_language or "und"
+    result_language, detected = _resolve_result_language(
+        full_text,
+        effective,
+        language_source,
+        detected_language,
+    )
 
     return LyricsResult(
         lines=lines,
@@ -813,6 +842,73 @@ def extract_lyrics_to_files(
     return written
 
 
+def _result_from_subtitle_lines(
+    lines: List[LyricLine],
+    *,
+    duration: float,
+    title: Optional[str],
+    artist: Optional[str],
+    language: str,
+    language_source: str,
+    script: str,
+    language_requested: str,
+) -> LyricsResult:
+    """Build a result out of the subtitles a page carried.
+
+    The words a human wrote are left as they were written. The only change
+    made is the writing system the caller asked for, and the region of a
+    Bangla text, which is read out of the text itself.
+    """
+    from ..lang.translit import apply_script, resolve_script_target
+
+    full_text = "\n".join(line.text for line in lines)
+    target_script = resolve_script_target(full_text, script)
+    if target_script:
+        for line in lines:
+            line.text = apply_script(line.text, target_script)
+        full_text = "\n".join(line.text for line in lines)
+
+    result_language, detected = _resolve_result_language(full_text, language, language_source)
+
+    return LyricsResult(
+        lines=lines,
+        language=result_language,
+        duration=duration,
+        title=title,
+        artist=artist,
+        backend="site-subtitles",
+        model="",
+        elapsed=0.0,
+        meta={
+            "chunks": 0,
+            "model_used": "",
+            "model_label": "",
+            "quality": "subtitles",
+            "model_fallbacks": [],
+            "language_requested": language_requested or "auto",
+            "language_effective": language or "",
+            "language_source": language_source,
+            "language_detected": language or "",
+            "language_probability": None,
+            "dialect_confidence": detected.confidence,
+            "dialect": detected.dialect,
+            "evidence": detected.evidence,
+            "bd_score": detected.bd_score,
+            "in_score": detected.in_score,
+            "script": detected.script,
+            "script_repaired_lines": 0,
+            "engine_vad": False,
+            "output_script": target_script or "as recognised",
+            "sample_rate": 0,
+            "channels": 0,
+            "dropped_loops": 0,
+            "dropped_noise": 0,
+            "collapsed_repeats": 0,
+            "lyrics_source": "site subtitles",
+        },
+    )
+
+
 def extract_lyrics_from_url(
     url: str,
     work_dir: str,
@@ -822,29 +918,156 @@ def extract_lyrics_from_url(
 ) -> Dict[str, Any]:
     """Fetch the audio behind a link and read the lyrics out of it.
 
-    The audio is fetched into ``work_dir`` and then read exactly like a file
-    that was dropped in. The language of the track is worked out on its own
-    when the caller did not name one, and the page's own answer about the
-    language is used when it gave one.
+    Three things can answer the request, and the best one that is there wins:
+
+    * the subtitles the page itself carries. They are the truth about the
+      words and the timings, and using them costs no model, no memory and no
+      waiting.
+    * the audio, read by a speech model, when the page has no subtitles.
+    * the page's own answer about the language, used as a hint for the model
+      when the caller did not name one.
+
+    The audio is fetched either way, so the panel can play the song it wrote
+    the lyrics for. Everything stays on this machine.
 
     Returns the result and the facts about the source.
     """
-    from ..sources import fetch_audio
-
-    source = fetch_audio(url, work_dir)
-
-    hint = source.language
-    result = extract_lyrics(
-        source.audio_path,
-        language=language,
-        language_hint=hint or None,
-        title=kwargs.pop("title", None) or source.title,
-        artist=kwargs.pop("artist", None) or source.uploader,
-        **kwargs,
+    from ..export.subtitles import parse_subtitles
+    from ..sources import (
+        SourceError,
+        fetch_audio,
+        fetch_metadata,
+        fetch_subtitles,
+        rank_subtitle_tracks,
+        read_subtitle_file,
     )
+
+    started = time.perf_counter()
+    steps: List[Dict[str, Any]] = []
+
+    metadata = fetch_metadata(url)
+    steps.append(
+        {
+            "step": "metadata",
+            "ok": True,
+            "title": metadata.title,
+            "uploader": metadata.uploader,
+            "language_source": metadata.language_source,
+            "subtitle_tracks": len(metadata.subtitles),
+        }
+    )
+
+    requested = (language or "").strip()
+    auto_language = requested.lower() in ("", "auto")
+
+    # The language to look for. A caller who named one wins, and the page's
+    # own answer is used when the caller did not.
+    prefer = metadata.language if auto_language else requested
+
+    # The subtitles the page offers, if any. The best track is tried first and
+    # the next one is tried when a site refuses the first, because a busy site
+    # does refuse a track now and then.
+    ranked = rank_subtitle_tracks(metadata.subtitles, prefer)
+    subtitle_lines: List[LyricLine] = []
+    subtitle_info: Dict[str, Any] = {}
+
+    if not ranked:
+        steps.append({"step": "subtitles", "ok": False, "reason": "the page offers no subtitles"})
+    else:
+        track = None
+        try:
+            track = fetch_subtitles(
+                url,
+                work_dir,
+                tracks=ranked,
+                prefer_language=prefer,
+            )
+        except SourceError as exc:
+            steps.append({"step": "subtitles", "ok": False, "reason": str(exc)})
+        if track is None:
+            if not any(step["step"] == "subtitles" for step in steps):
+                steps.append(
+                    {
+                        "step": "subtitles",
+                        "ok": False,
+                        "reason": "no track could be read from the page",
+                    }
+                )
+        else:
+            text = read_subtitle_file(track.path, language=track.language)
+            subtitle_lines = parse_subtitles(text)
+            if subtitle_lines:
+                subtitle_info = track.to_dict()
+                subtitle_info["lines"] = len(subtitle_lines)
+                steps.append(
+                    {
+                        "step": "subtitles",
+                        "ok": True,
+                        "language": track.language,
+                        "automatic": track.automatic,
+                        "lines": len(subtitle_lines),
+                    }
+                )
+            else:
+                subtitle_lines = []
+                steps.append(
+                    {"step": "subtitles", "ok": False, "reason": "the track held no cues"}
+                )
+
+    # The audio is fetched either way, because the panel plays it.
+    source = fetch_audio(url, work_dir)
+    steps.append(
+        {
+            "step": "audio",
+            "ok": True,
+            "duration": round(float(source.duration), 3),
+            "extractor": source.extractor,
+        }
+    )
+
+    title = kwargs.pop("title", None) or source.title
+    artist = kwargs.pop("artist", None) or source.uploader
+
+    if subtitle_lines:
+        # The page named the language of its own subtitles, so the language is
+        # known rather than guessed.
+        effective = requested if not auto_language else (subtitle_info.get("language") or "")
+        language_source = "requested" if not auto_language else "declared"
+        result = _result_from_subtitle_lines(
+            subtitle_lines,
+            duration=float(source.duration or 0.0),
+            title=title,
+            artist=artist,
+            language=effective,
+            language_source=language_source,
+            script=str(kwargs.pop("script", "bangla") or "bangla"),
+            language_requested=requested or "auto",
+        )
+        lyrics_source = "site subtitles"
+    else:
+        hint = source.language
+        result = extract_lyrics(
+            source.audio_path,
+            language=language,
+            language_hint=hint or None,
+            title=title,
+            artist=artist,
+            **kwargs,
+        )
+        lyrics_source = "speech model"
+
     result.meta["source"] = source.to_dict()
     result.meta["source_language"] = source.language
     result.meta["source_language_source"] = source.language_source
+    result.meta["lyrics_source"] = lyrics_source
+    result.meta["subtitle_track"] = subtitle_info
+    result.meta["pipeline"] = {
+        "url": url,
+        "steps": steps,
+        "lyrics_source": lyrics_source,
+        "subtitle_track": subtitle_info,
+        "elapsed": round(time.perf_counter() - started, 3),
+    }
     if source.title and not result.title:
         result.title = source.title
     if source.uploader and not result.artist:

@@ -265,6 +265,9 @@ def _lyrics_payload(
         "text": result.text,
         "lines": [line.to_dict() for line in result.lines],
         "meta": result.meta,
+        # Where the words came from. The subtitles the page carried, or a
+        # speech model that read the audio.
+        "lyrics_source": result.meta.get("lyrics_source", "speech model"),
         "downloads": {
             "srt": f"/api/lyrics/{job_id}/download/srt",
             "txt": f"/api/lyrics/{job_id}/download/txt",

@@ -96,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
     lyrics.add_argument("--prompt", default=None, help="Initial prompt to guide the recogniser.")
     lyrics.add_argument("--max-repeats", type=int, default=2)
     lyrics.add_argument("--print", dest="print_text", action="store_true", help="Print the lyrics.")
+    lyrics.add_argument(
+        "--report",
+        default=None,
+        help="Write a JSON report of the whole pipeline to this file.",
+    )
 
     # -- transcribe -----------------------------------------------------
     tr = sub.add_parser("transcribe", help="Transcribe speech to text.")
@@ -205,6 +210,31 @@ def _read_text(args: argparse.Namespace) -> str:
     return ""
 
 
+def _write_report(result: object, path: str) -> str:
+    """Write a JSON report of a finished job.
+
+    The report holds the lines and every fact the engine worked out on the
+    way, so a run can be looked at afterwards without guessing what happened.
+    """
+    from .export.plaintext import write_text
+
+    target = Path(path)
+    payload = {
+        "language": getattr(result, "language", ""),
+        "duration": getattr(result, "duration", 0.0),
+        "title": getattr(result, "title", None),
+        "artist": getattr(result, "artist", None),
+        "backend": getattr(result, "backend", ""),
+        "model": getattr(result, "model", ""),
+        "elapsed": getattr(result, "elapsed", 0.0),
+        "meta": getattr(result, "meta", {}),
+        "lines": [line.to_dict() for line in getattr(result, "lines", [])],
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_text(str(target), json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    return str(target)
+
+
 def _cmd_lyrics(args: argparse.Namespace) -> int:
     from .sources import is_url
     from .tasks.lyrics import extract_lyrics_from_url, extract_lyrics_to_files
@@ -265,10 +295,16 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
             print(result.text)
         for fmt, path in written.items():
             print(f"{fmt}: {path}")
+        if args.report:
+            report_path = _write_report(result, args.report)
+            print(f"report: {report_path}")
+        pipeline = result.meta.get("pipeline") or {}
+        elapsed = float(pipeline.get("elapsed") or result.elapsed)
         print(
             f"language={result.language} lines={len(result.lines)} "
-            f"duration={result.duration:.1f}s elapsed={result.elapsed:.1f}s "
+            f"duration={result.duration:.1f}s elapsed={elapsed:.1f}s "
             f"model={result.meta.get('model_used') or 'unknown'} "
+            f"lyrics_from={result.meta.get('lyrics_source') or 'speech model'} "
             f"source={source.title or source.url}",
             file=sys.stderr,
         )
@@ -299,10 +335,14 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
         print(result.text)
     for fmt, path in written.items():
         print(f"{fmt}: {path}")
+    if args.report:
+        report_path = _write_report(result, args.report)
+        print(f"report: {report_path}")
     print(
         f"language={result.language} lines={len(result.lines)} "
         f"duration={result.duration:.1f}s elapsed={result.elapsed:.1f}s "
-        f"model={result.meta.get('model_used') or 'unknown'}",
+        f"model={result.meta.get('model_used') or 'unknown'} "
+        f"lyrics_from={result.meta.get('lyrics_source') or 'speech model'}",
         file=sys.stderr,
     )
     return 0
