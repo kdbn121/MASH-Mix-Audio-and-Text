@@ -909,20 +909,86 @@ def _result_from_subtitle_lines(
     )
 
 
+def _read_karaoke(
+    url: str,
+    work_dir: str,
+    language: str,
+    steps: List[Dict[str, Any]],
+    *,
+    interval: float = 1.0,
+) -> Tuple[List[LyricLine], Dict[str, Any]]:
+    """Read the words of a karaoke off the picture of the video.
+
+    A karaoke has no subtitles and often nobody singing either, so the words
+    of the song are on the picture and nowhere else. The reading begins with
+    the survey, which is the cheap look: a few frames are read, and a video
+    with no text that moves is not a karaoke, so the run carries on to the
+    model rather than spending the rest of the work on a video that has
+    nothing to read.
+    """
+    from ..karaoke import KaraokeError, have_ocr, read_burned_in_lyrics
+    from ..sources import SourceError, fetch_video
+
+    if not have_ocr():
+        steps.append(
+            {
+                "step": "karaoke",
+                "ok": False,
+                "reason": "the reader of the picture is not installed",
+            }
+        )
+        return [], {}
+
+    try:
+        video_path = fetch_video(url, work_dir)
+    except SourceError as exc:
+        steps.append({"step": "karaoke", "ok": False, "reason": str(exc)})
+        return [], {}
+
+    try:
+        result = read_burned_in_lyrics(video_path, language=language, interval=interval)
+    except KaraokeError as exc:
+        steps.append({"step": "karaoke", "ok": False, "reason": str(exc)})
+        return [], {}
+
+    steps.append(
+        {
+            "step": "karaoke",
+            "ok": True,
+            "lines": len(result.lines),
+            "swept": result.swept,
+            "elapsed": result.elapsed,
+            "band": list(result.band),
+            "rows": result.rows,
+        }
+    )
+    facts = {
+        "rows": result.rows,
+        "swept": result.swept,
+        "band": list(result.band),
+        "elapsed": result.elapsed,
+        "frames_read": result.meta.get("frames_read", 0),
+    }
+    return list(result.lines), facts
+
+
 def extract_lyrics_from_url(
     url: str,
     work_dir: str,
     *,
     language: Optional[str] = "auto",
+    karaoke: str = "auto",
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """Fetch the audio behind a link and read the lyrics out of it.
 
-    Three things can answer the request, and the best one that is there wins:
+    Four things can answer the request, and the best one that is there wins:
 
     * the subtitles the page itself carries. They are the truth about the
       words and the timings, and using them costs no model, no memory and no
       waiting.
+    * the words burned into the picture of a karaoke video, when the page has
+      no subtitles and the words are on the screen rather than in the sound.
     * the audio, read by a speech model, when the page has no subtitles.
     * the page's own answer about the language, used as a hint for the model
       when the caller did not name one.
@@ -1028,6 +1094,15 @@ def extract_lyrics_from_url(
     title = kwargs.pop("title", None) or source.title
     artist = kwargs.pop("artist", None) or source.uploader
 
+    # A karaoke keeps the words of the song in the picture. It is looked at
+    # when the page has no subtitles of its own, because a page that carries
+    # its subtitles is the better answer and is cheaper.
+    karaoke_mode = str(karaoke or "auto").strip().lower()
+    karaoke_lines: List[LyricLine] = []
+    karaoke_info: Dict[str, Any] = {}
+    if not subtitle_lines and karaoke_mode != "off":
+        karaoke_lines, karaoke_info = _read_karaoke(url, work_dir, prefer or "bn", steps)
+
     if subtitle_lines:
         # The page named the language of its own subtitles, so the language is
         # known rather than guessed.
@@ -1044,6 +1119,24 @@ def extract_lyrics_from_url(
             language_requested=requested or "auto",
         )
         lyrics_source = "site subtitles"
+    elif karaoke_lines:
+        # The words were read off the picture, so the script they are in is
+        # the script of the picture.
+        effective = requested if not auto_language else (prefer or "")
+        result = _result_from_subtitle_lines(
+            karaoke_lines,
+            duration=float(source.duration or 0.0),
+            title=title,
+            artist=artist,
+            language=effective,
+            language_source="requested" if not auto_language else "read",
+            script=str(kwargs.pop("script", "bangla") or "bangla"),
+            language_requested=requested or "auto",
+        )
+        result.backend = "video-ocr"
+        result.meta["lyrics_source"] = "video ocr"
+        result.meta["karaoke"] = karaoke_info
+        lyrics_source = "video ocr"
     else:
         hint = source.language
         result = extract_lyrics(
@@ -1066,6 +1159,7 @@ def extract_lyrics_from_url(
         "steps": steps,
         "lyrics_source": lyrics_source,
         "subtitle_track": subtitle_info,
+        "karaoke": karaoke_info,
         "elapsed": round(time.perf_counter() - started, 3),
     }
     if source.title and not result.title:

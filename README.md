@@ -18,6 +18,7 @@ pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH
 - [Song to lyric](#song-to-lyric)
 - [A link instead of a file](#a-link-instead-of-a-file)
 - [The subtitles the page already carries](#the-subtitles-the-page-already-carries)
+- [The words on the picture of a karaoke](#the-words-on-the-picture-of-a-karaoke)
 - [The language of the audio](#the-language-of-the-audio)
 - [The report of a run](#the-report-of-a-run)
 - [The Bangla layer](#the-bangla-layer)
@@ -484,6 +485,35 @@ lines = parse_subtitles(open("subs.en.vtt", encoding="utf-8").read())
 **The audio is fetched either way.** The panel plays the song it wrote the lyrics for,
 so the engine puts a copy of the audio on this machine even when the words came from the
 page. Nothing leaves this machine.
+
+---
+
+## The words on the picture of a karaoke
+
+A karaoke has no subtitles, and often nobody is singing either, so the words of the song are on
+the screen and nowhere else. The engine downloads the picture and reads it.
+
+```bash
+pip install "mash-mix-audio-and-text[karaoke]"
+mash-mix lyrics "https://www.youtube.com/watch?v=O4VgX2jd2Ug" -o out --lang bn-BD --karaoke on
+```
+
+**The rows of the song are found by the colour sweep.** A karaoke sweeps the line along as
+it is sung, so the colour of the letters moves from one colour to another and back again as
+the song goes on. The engine follows the colour of every place where text was found over the
+whole video, and the places where the colour moves are the rows of the lyrics. A name, a
+logo and an advertisement do not sweep, so they are not rows of the song.
+
+**The times of the song come from the same sweep.** The moment the sweep starts is the
+moment the line is sung, so the timings are the timings of the song and not a guess.
+
+**The reading that the most frames agree on is the one that is kept.** The words are read
+again in every frame they are on the screen in, because a reader that is nearly right is
+wrong in a different way every time it is tried.
+
+A video with nothing that sweeps is not a karaoke, and the survey says so without spending
+the rest of the work on it. The run carries on to the model instead. The command line has
+`--karaoke auto|on|off` and the HTTP route has a `karaoke` field of the same three values.
 
 ---
 

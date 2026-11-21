@@ -92,6 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lyrics.add_argument("--chunk-seconds", type=float, default=30.0)
     lyrics.add_argument("--overlap-seconds", type=float, default=2.0)
+    lyrics.add_argument(
+        "--karaoke",
+        default="auto",
+        choices=["auto", "on", "off"],
+        help="Read the words off the picture of a karaoke video. Auto: only when "
+        "the page has no subtitles of its own.",
+    )
     lyrics.add_argument("--hotword", action="append", dest="hotwords", default=None)
     lyrics.add_argument("--prompt", default=None, help="Initial prompt to guide the recogniser.")
     lyrics.add_argument("--max-repeats", type=int, default=2)
@@ -268,6 +275,7 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
             max_repeats=args.max_repeats,
             script=args.script,
             quality=args.quality,
+            karaoke=getattr(args, "karaoke", "auto") or "auto",
         )
         result = outcome["result"]
         source = outcome["source"]

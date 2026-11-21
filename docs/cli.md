@@ -49,6 +49,7 @@ Extract lyrics from a song or a spoken track.
 | `--max-repeats` | `2` | How many consecutive identical lines to keep before they are dropped |
 | `--print` | off | Print the lyrics to the terminal |
 | `--report` | none | Write a JSON report of the whole pipeline to this file |
+| `--karaoke` | `auto` | Read the words of a karaoke off the picture: `auto`, `on` or `off` |
 
 ```bash
 mash-mix lyrics "bangla song.mp3" -o out --format srt --format txt --lang bn-BD

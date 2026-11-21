@@ -251,6 +251,7 @@ form data.
 | `backend` | string | `auto` | The speech to text backend |
 | `model` | string | none | The model id for the backend |
 | `quality` | string | `auto` | Which model to reach for: `auto`, `best` or `fast` |
+| `karaoke` | string | `auto` | Read the words of a karaoke off the picture: `auto`, `on` or `off` |
 
 ```bash
 curl -X POST http://localhost:8000/api/lyrics/url \

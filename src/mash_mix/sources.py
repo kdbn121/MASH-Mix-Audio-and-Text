@@ -39,6 +39,7 @@ __all__ = [
     "fetch_audio",
     "fetch_metadata",
     "fetch_subtitles",
+    "fetch_video",
     "choose_subtitle_track",
     "rank_subtitle_tracks",
     "is_url",
@@ -592,6 +593,51 @@ def fetch_audio(url: str, target_dir: str, *, timeout: int = 900) -> SourceInfo:
         raise SourceError("The audio was fetched but no file was written.")
     source.audio_path = audio_path
     return source
+
+
+def fetch_video(url: str, target_dir: str, *, timeout: int = 900, height: int = 720) -> str:
+    """Fetch the picture behind a link into a folder.
+
+    A karaoke keeps the words of the song in the picture, so the picture is
+    what has to be read. The fetcher is asked for a copy that is small enough
+    to be read quickly and large enough for the words to be clear, and the
+    path of the file that was written is returned.
+    """
+    if not is_url(url):
+        raise SourceError(f"'{url}' is not a web address.")
+
+    folder = Path(target_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    template = str(folder / "picture.%(ext)s")
+    payload = _run(
+        [
+            "--dump-single-json",
+            "--no-simulate",
+            "--no-warnings",
+            "--no-playlist",
+            "--no-progress",
+            "--force-overwrites",
+            "--format",
+            f"bestvideo[height<={height}][ext=mp4]/best[height<={height}][ext=mp4]"
+            f"/bestvideo[height<={height}]/best[height<={height}]/best",
+            "--output",
+            template,
+            url,
+        ],
+        timeout=timeout,
+    )
+    info = _metadata_from_json(payload)
+
+    for item in info.get("requested_downloads") or []:
+        if isinstance(item, dict):
+            candidate = str(item.get("filepath") or "")
+            if candidate and Path(candidate).exists():
+                return candidate
+    for candidate in sorted(folder.glob("picture.*")):
+        if candidate.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov", ".m4v"):
+            return str(candidate)
+    raise SourceError("The picture was fetched but no file was written.")
 
 
 def decode_subtitle_bytes(raw: bytes, language: Optional[str] = None) -> str:

@@ -4,6 +4,68 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.5.0] - 2026-11-21
+
+The words of a karaoke are read off the picture of the video.
+
+### Added
+
+- **A karaoke is read off the picture.** A karaoke video carries no subtitles
+  and often has nobody singing either, so the words of the song are on the
+  screen and nowhere else. The engine now downloads the picture and reads it.
+  A run that used it says so in `meta["lyrics_source"]`, which reads
+  `video ocr`, and the panel shows it as "read off the picture of the video".
+- **The rows of the song are found by the colour sweep.** A karaoke sweeps the
+  line along as it is sung, so the colour of the letters moves from one colour
+  to another and back again as the song goes on. The colour of every place
+  where text was found is followed over the whole video, and the places where
+  the colour moves are the rows of the lyrics. A name and a logo do not move,
+  so they are not rows of the song. A video with nothing that moves is not a
+  karaoke, and the survey says so without spending the rest of the work on it.
+- **Every line that is found is judged on three things.** A karaoke channel
+  puts a lot on the picture that is not the song. The words must be in the
+  script of the song, so a name of a channel, a web address and a number are
+  not words of the song. They must not run across the whole width of the
+  picture, because a line of the song sits in the middle. And the colour of
+  their letters must travel in one direction while they are on the screen,
+  because an advertisement is not sung and its colour does not travel.
+- **The times of a karaoke come from the travel of the colour.** The moment the
+  colour of the letters starts to move is the moment the line is sung, and the
+  moment it stops is the moment the line has been sung. The words are read once
+  a second, so the moment is looked for again with a finer step, and that step
+  reads the colour of the picture only, which is cheap.
+- **Each line of the song is written once.** A karaoke shows the line that is
+  being sung and the line that comes next, so the same words are swept twice.
+  The first sweep is the one that was sung.
+- **The reading that the most frames agree on is the one that is kept.** The
+  words are read again in every frame they are on the screen in, and a
+  recogniser that is nearly right is wrong in a different way every time it
+  is tried, so the reading that shows up most often wins.
+- **`mash_mix.karaoke`.** The reader of the picture: `read_burned_in_lyrics`
+  for the whole reading, `survey_burned_in_lyrics` for the cheap look that
+  says whether a video is a karaoke at all.
+- **`mash_mix.sources.fetch_video`.** The picture behind a link, fetched at a
+  size that is quick to read and clear enough for the words.
+- **The karaoke extra.** `pip install "mash-mix-audio-and-text[karaoke]"`
+  brings in EasyOCR and OpenCV. The extra is not needed for anything else,
+  and a run without it says so and carries on.
+- **`--karaoke auto|on|off` on the command line** and a `karaoke` field on
+  `POST /api/lyrics/url`. The default is `auto`, which reads the picture when
+  the page carries no subtitles of its own.
+
+### Fixed
+
+- **A line that is wider than the picture is not a line of the song.** A
+  channel that puts an advertisement over the words puts it across the whole
+  width, while a line of the song sits in the middle.
+- **The server keeps answering while a long run is at it.** A route that does
+  a long piece of work now runs it in a worker instead of holding the event
+  loop, so the health check and the download answer while the engine is busy.
+  Reading the words of a karaoke off the picture of a video takes a quarter of
+  an hour on an ordinary computer.
+- **The series of the sweep and the rows of the song are in step.** A row that
+  was left out of the song no longer shifts the timings of the rows after it.
+
 ## [0.4.0] - 2026-11-21
 
 The subtitles a page already carries are used, and a region falls back on its twin.

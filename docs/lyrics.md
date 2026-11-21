@@ -81,6 +81,41 @@ before it reads the audio, and uses it when the page has one.
 | 5. Work out the language | The track names its own language, so it is known rather than guessed |
 | 6. Work out the region | A Bangla text carries `bn-BD` or `bn-IN`, read out of the text itself |
 
+## The words on the picture of a karaoke
+
+A karaoke has no subtitles, and often nobody is singing either, so the words of the song are on the
+screen and nowhere else. The engine downloads the picture and reads it.
+
+| Step | What happens |
+|---|---|
+| 1. Read a few frames | The frames are spread over the middle of the video, so the introduction and the end credits do not decide the matter |
+| 2. Follow the colour | The colour of every place where text was found is followed over the whole video |
+| 3. Keep the places that sweep | A karaoke sweeps the line along as it is sung, so the colour of the letters moves. A name and a logo do not move |
+| 4. Read the words | The band of the rows that sweep is read at every step, and the words of each row are followed |
+| 5. Take the reading most frames agree on | A reader that is nearly right is wrong in a different way every time it is tried |
+| 6. Judge the line | The words must be in the script of the song, they must not run across the whole width of the picture, and the colour of their letters must travel in one direction while they are on the screen |
+| 7. Take the times from the travel | The moment the colour starts to move is the moment the line is sung, and the moment it stops is the moment the line has been sung |
+
+A karaoke usually shows the line that is being sung and the line that comes next, so the same words are
+swept twice. The first sweep is the one that was sung, so each line of the song is written once.
+
+A video with nothing that sweeps is not a karaoke, and the survey says so without spending the rest of
+the work on it. The run carries on to the model instead.
+
+The reader of the picture needs the karaoke extra:
+
+```bash
+pip install "mash-mix-audio-and-text[karaoke]"
+```
+
+Without it the run says so in the report and carries on. The command line has `--karaoke auto|on|off`
+and the HTTP route has a `karaoke` field of the same three values. The default is `auto`, which reads
+the picture when the page carries no subtitles of its own.
+
+A karaoke takes a long time to read, because every second of the video has to be read and every word
+has to be recognised. A five minute song takes about a quarter of an hour on an ordinary computer. The
+panel shows a bar that moves while the engine is at it.
+
 A track in the wrong language is never used. A track in another language is worse than no track
 at all, so the engine falls back on reading the audio rather than on the wrong words.
 

@@ -4,6 +4,12 @@
 The server gives the same engine a face: upload a song, get lyric lines back,
 download them as SRT or plain text. It also exposes OpenAI style speech and
 transcription routes so existing tools can point at it.
+
+A route that does a long piece of work is written as a plain function and not
+as a coroutine, so the server runs it in a worker and keeps answering while
+it works. Reading the words of a karaoke off the picture of a video takes a
+quarter of an hour on an ordinary computer, and the engine must still answer
+the health check and the download while it is at it.
 """
 
 from __future__ import annotations
@@ -172,6 +178,8 @@ def _analysis_details(path: Path) -> Dict[str, Any]:
 @app.post("/api/analyze")
 async def analyze_upload(file: UploadFile = File(...)) -> Dict[str, Any]:
     """Measure an uploaded file. Returns the levels, the headroom, the pitch and the tempo."""
+    from fastapi.concurrency import run_in_threadpool
+
     from ..audio.io import probe
 
     job_id = uuid.uuid4().hex[:12]
@@ -180,10 +188,10 @@ async def analyze_upload(file: UploadFile = File(...)) -> Dict[str, Any]:
     try:
         facts: Dict[str, Any] = {}
         try:
-            facts = probe(source)
+            facts = await run_in_threadpool(probe, source)
         except Exception:
             facts = {}
-        payload = _analysis_details(source)
+        payload = await run_in_threadpool(_analysis_details, source)
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -297,6 +305,8 @@ async def lyrics(
     quality: str = Form("auto"),
 ) -> Dict[str, Any]:
     """Extract lyrics from an uploaded song. Returns the lines and download links."""
+    from fastapi.concurrency import run_in_threadpool
+
     from ..tasks.lyrics import extract_lyrics
 
     job_id = uuid.uuid4().hex[:12]
@@ -305,7 +315,8 @@ async def lyrics(
     source_info = _source_details(source, file.filename or source.name)
 
     try:
-        result = extract_lyrics(
+        result = await run_in_threadpool(
+            extract_lyrics,
             str(source),
             backend=backend,
             model=model,
@@ -334,12 +345,18 @@ async def lyrics_from_url(
     backend: str = Form("auto"),
     model: Optional[str] = Form(None),
     quality: str = Form("auto"),
+    karaoke: str = Form("auto"),
 ) -> Dict[str, Any]:
     """Fetch the audio behind a link and write its lyrics.
 
     The engine does the fetching, so the browser never touches the site. The
     language is worked out on its own when the caller did not name one.
+
+    A karaoke keeps the words of the song in the picture. The picture is read
+    when the page has no subtitles of its own, unless the caller says not to.
     """
+    from fastapi.concurrency import run_in_threadpool
+
     from ..sources import SourceError, is_url
     from ..tasks.lyrics import extract_lyrics_from_url
 
@@ -350,7 +367,8 @@ async def lyrics_from_url(
     folder = _job_dir(job_id)
 
     try:
-        outcome = extract_lyrics_from_url(
+        outcome = await run_in_threadpool(
+            extract_lyrics_from_url,
             url,
             str(folder),
             language=language or "auto",
@@ -361,6 +379,7 @@ async def lyrics_from_url(
             separate_vocals=bool(separate_vocals),
             script=script or "bangla",
             quality=quality or "auto",
+            karaoke=karaoke or "auto",
         )
     except SourceError as exc:
         shutil.rmtree(folder, ignore_errors=True)
@@ -433,13 +452,16 @@ async def transcribe(
     model: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
     """Transcribe an uploaded recording."""
+    from fastapi.concurrency import run_in_threadpool
+
     from ..tasks.transcribe import transcribe as run_transcribe
 
     job_id = uuid.uuid4().hex[:12]
     folder = _job_dir(job_id)
     source = _save_upload(file, folder)
     try:
-        result = run_transcribe(
+        result = await run_in_threadpool(
+            run_transcribe,
             str(source),
             backend=backend,
             model=model,
@@ -497,13 +519,16 @@ async def audio_transcriptions(
     response_format: str = Form("json"),
 ) -> Any:
     """OpenAI style speech to text."""
+    from fastapi.concurrency import run_in_threadpool
+
     from ..tasks.transcribe import transcribe as run_transcribe
 
     job_id = uuid.uuid4().hex[:12]
     folder = _job_dir(job_id)
     source = _save_upload(file, folder)
     try:
-        result = run_transcribe(
+        result = await run_in_threadpool(
+            run_transcribe,
             str(source),
             backend=model if model in ("auto", "whisper", "faster-whisper") else "auto",
             language=language or None,

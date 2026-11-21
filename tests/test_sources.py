@@ -425,8 +425,14 @@ def test_a_link_becomes_the_lyric_files(monkeypatch, tmp_path):
             audio_path=str(audio),
         )
 
+    def fake_video(url, target_dir, **kwargs):
+        # The page has no subtitles, so the karaoke is looked for. There is no
+        # picture here, so the run carries on to the model.
+        raise SourceError("no picture to read")
+
     monkeypatch.setattr("mash_mix.sources.fetch_metadata", lambda url, **kwargs: fake_fetch(url, ""))
     monkeypatch.setattr("mash_mix.sources.fetch_audio", fake_fetch)
+    monkeypatch.setattr("mash_mix.sources.fetch_video", fake_video)
 
     outcome = lyrics_module.extract_lyrics_from_url(
         "https://www.youtube.com/watch?v=AU0mxhZcL1w",
