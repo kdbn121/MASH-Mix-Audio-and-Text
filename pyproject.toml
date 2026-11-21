@@ -92,9 +92,9 @@ mash-mix = "mash_mix.cli:main"
 mash-mix-doctor = "mash_mix.doctor:main"
 
 [project.urls]
-Homepage = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text"
-Repository = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text"
-Issues = "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/issues"
+Homepage = "https://github.com/kdbn121/MASH-Mix-Audio-and-Text"
+Repository = "https://github.com/kdbn121/MASH-Mix-Audio-and-Text"
+Issues = "https://github.com/kdbn121/MASH-Mix-Audio-and-Text/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

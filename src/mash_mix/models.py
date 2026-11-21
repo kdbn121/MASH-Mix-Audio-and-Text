@@ -270,7 +270,7 @@ MODEL_CATALOG: List[Dict[str, Any]] = [
         "license": "follows the two models it uses",
         "platforms": "Windows, Linux, macOS, Android, iOS",
         "notes": "Speech to speech built from the recognition and synthesis backends.",
-        "url": "https://github.com/MASH-ai/MASH-Mix-Audio-and-Text",
+        "url": "https://github.com/kdbn121/MASH-Mix-Audio-and-Text",
     },
     # ---------------------------------------------------------- separation
     {

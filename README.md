@@ -5,7 +5,7 @@
 **Bangla is not an afterthought here.** Bangladeshi Bangla (`bn-BD`) and Indian Bengali (`bn-IN`) are first class: separate language tags, separate text preparation, separate regional detection, and models that actually speak them.
 
 ```
-pip install mash-mix-audio-and-text[full]
+pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 ```
 
 ---
@@ -57,23 +57,28 @@ uses the CPU path; if only ONNX Runtime is available it uses the edge models.
 
 ## Install
 
-The base package is small and has one dependency.
+The base package is small and has one dependency. It is not on PyPI, so it is
+installed from the repository.
 
 ```bash
-pip install mash-mix-audio-and-text
+pip install "mash-mix-audio-and-text @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 
 # with speech to text
-pip install 'mash-mix-audio-and-text[stt]'
+pip install "mash-mix-audio-and-text[stt] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 
 # with text to speech
-pip install 'mash-mix-audio-and-text[tts]'
+pip install "mash-mix-audio-and-text[tts] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 
 # with the web interface and API
-pip install 'mash-mix-audio-and-text[server]'
+pip install "mash-mix-audio-and-text[server] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 
 # everything a desktop user wants
-pip install 'mash-mix-audio-and-text[full]'
+pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 ```
+
+The same package drives the [Chrome extension](https://github.com/kdbn121/MASH-Mix-Audio-and-Text-Extension),
+which measures a song in the browser and sends the file to this engine only
+when you ask it for the lyrics.
 
 **ffmpeg is required** for anything other than WAV. It handles mp3, m4a, flac, ogg, opus,
 aac, wma, and video containers, on every platform.
@@ -534,7 +539,7 @@ Android notes:
 
 ```bash
 pkg install python ffmpeg rust
-pip install 'mash-mix-audio-and-text[edge]'
+pip install "mash-mix-audio-and-text[edge] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 ```
 
 iOS notes: the `edge` extra gives ONNX Runtime Mobile. Convert the models with
@@ -576,7 +581,7 @@ The design rules:
 ## Development
 
 ```bash
-git clone https://github.com/MASH-ai/MASH-Mix-Audio-and-Text.git
+git clone https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git
 cd MASH-Mix-Audio-and-Text
 pip install -e '.[full,dev]'
 pytest

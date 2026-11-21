@@ -146,7 +146,7 @@ Vocal separation that actually runs, and lyric lines that follow the song.
   with separation no longer needs both networks in memory at the same time.
 - The lyric pipeline no longer crashes on a loud passage of a long song.
 
-[0.1.2]: https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/releases/tag/v0.1.2
+[0.1.2]: https://github.com/kdbn121/MASH-Mix-Audio-and-Text/releases/tag/v0.1.2
 
 ---
 
@@ -201,7 +201,7 @@ Song lyric accuracy, the Banglish option, and a visible file panel.
   generation argument, and falls back to the older spelling of the dtype
   argument.
 
-[0.1.1]: https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/releases/tag/v0.1.1
+[0.1.1]: https://github.com/kdbn121/MASH-Mix-Audio-and-Text/releases/tag/v0.1.1
 
 ---
 
@@ -235,7 +235,7 @@ First release.
   with lyric download buttons.
 - `mash-mix doctor` machine check and a model catalogue with licences.
 
-[0.1.0]: https://github.com/MASH-ai/MASH-Mix-Audio-and-Text/releases/tag/v0.1.0
+[0.1.0]: https://github.com/kdbn121/MASH-Mix-Audio-and-Text/releases/tag/v0.1.0
 
 ---
 
