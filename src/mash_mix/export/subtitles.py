@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, List, Optional, Sequence
 
-from ..types import LyricLine, Segment
+from ..types import LyricLine, Segment, Word
 
 __all__ = [
     "format_srt_timestamp",
@@ -29,7 +29,15 @@ __all__ = [
     "wrap_text",
     "parse_timestamp",
     "parse_subtitles",
+    "STYLES",
 ]
+
+#: The styles a subtitle file can be written in.
+#:
+#: ``plain`` is one cue for each line. ``word_by_word`` is one cue for each
+#: word. ``karaoke`` is the whole line on the screen with the word that is
+#: being sung marked inside it.
+STYLES = ("plain", "word_by_word", "karaoke")
 
 #: A timestamp of a cue. The hours are optional, because a short clip may
 #: write its cues as ``MM:SS,mmm``.
@@ -137,14 +145,42 @@ def _lines_to_srt(lines: Sequence[LyricLine], *, max_chars: int, max_lines: int)
     return "\n".join(blocks)
 
 
+def _styled(lines: Sequence[LyricLine], style: str) -> Optional[List]:
+    """The cues of the lines, when a style needs the time of every word.
+
+    Nothing is returned when the style is plain, or when the lines carry no
+    word timings, because in those two cases the plain writer is the right one.
+    """
+    chosen = str(style or "plain").lower()
+    if chosen not in ("word_by_word", "karaoke"):
+        return None
+    if not any(line.words for line in lines):
+        return None
+    from .word_cues import cues_from_lines
+
+    return cues_from_lines(lines)
+
+
 def to_srt(
     lines: Sequence[LyricLine],
     *,
     max_chars: int = 42,
     max_lines: int = 2,
+    style: str = "plain",
     **_: object,
 ) -> str:
-    """Render lyric lines as SRT."""
+    """Render lyric lines as SRT.
+
+    The ``style`` argument asks for the words to be marked. ``karaoke`` puts
+    the whole line on the screen and marks the word that is being sung, and
+    ``word_by_word`` gives every word a cue of its own. A line that carries no
+    word timings cannot be marked, so it is written the plain way.
+    """
+    cues = _styled(lines, style)
+    if cues is not None:
+        from .word_cues import to_srt as cues_to_srt
+
+        return cues_to_srt(cues, style)
     return _lines_to_srt(lines, max_chars=max_chars, max_lines=max_lines)
 
 
@@ -154,9 +190,15 @@ def to_vtt(
     max_chars: int = 42,
     max_lines: int = 2,
     title: Optional[str] = None,
+    style: str = "plain",
     **_: object,
 ) -> str:
     """Render lyric lines as WebVTT."""
+    cues = _styled(lines, style)
+    if cues is not None:
+        from .word_cues import to_vtt as cues_to_vtt
+
+        return cues_to_vtt(cues, style, title=title)
     header = "WEBVTT"
     if title:
         header += f"\nNOTE\nTitle: {title}\n"
@@ -182,9 +224,22 @@ def to_ass(
     height: int = 720,
     font_name: str = "Noto Sans Bengali",
     font_size: int = 48,
+    style: str = "plain",
     **_: object,
 ) -> str:
     """Render lyric lines as an ASS subtitle file with Bangla friendly defaults."""
+    cues = _styled(lines, style)
+    if cues is not None:
+        from .word_cues import to_ass as cues_to_ass
+
+        return cues_to_ass(
+            cues,
+            style,
+            width=width,
+            height=height,
+            font_name=font_name,
+            font_size=font_size,
+        )
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -218,11 +273,13 @@ def write_subtitles(
     max_chars: int = 42,
     max_lines: int = 2,
     title: Optional[str] = None,
+    style: str = "plain",
 ) -> str:
     """Write lyric lines to a file.
 
     The format comes from the ``fmt`` argument, and falls back to the file
-    suffix when it is not given.
+    suffix when it is not given. The format ``karaoke`` is an SRT file with the
+    word that is being sung marked inside the line.
     """
     from pathlib import Path
 
@@ -230,14 +287,27 @@ def write_subtitles(
     suffix = (fmt or target.suffix.lstrip(".") or "srt").lower()
     items = list(lines)
 
-    if suffix == "srt":
-        content = to_srt(items, max_chars=max_chars, max_lines=max_lines)
+    if suffix == "karaoke":
+        content = to_srt(items, max_chars=max_chars, max_lines=max_lines, style="karaoke")
+    elif suffix == "srt":
+        content = to_srt(
+            items,
+            max_chars=max_chars,
+            max_lines=max_lines,
+            style=style,
+        )
     elif suffix in ("vtt", "webvtt"):
-        content = to_vtt(items, max_chars=max_chars, max_lines=max_lines, title=title)
+        content = to_vtt(
+            items,
+            max_chars=max_chars,
+            max_lines=max_lines,
+            title=title,
+            style=style,
+        )
     elif suffix == "lrc":
         content = to_lrc(items)
     elif suffix == "ass":
-        content = to_ass(items)
+        content = to_ass(items, style=style)
     else:
         raise ValueError(f"Unsupported subtitle format: {suffix}")
 
@@ -247,7 +317,11 @@ def write_subtitles(
 
 
 def segments_to_lines(segments: Sequence[Segment]) -> List[LyricLine]:
-    """Turn transcription segments into lyric lines."""
+    """Turn transcription segments into lyric lines.
+
+    The time of every word is kept, because a karaoke subtitle needs it. A
+    segment that has no word timings gives a line with no word timings.
+    """
     return [
         LyricLine(
             start=float(seg.start),
@@ -255,6 +329,16 @@ def segments_to_lines(segments: Sequence[Segment]) -> List[LyricLine]:
             text=" ".join(seg.text.split()),
             speaker=seg.speaker,
             probability=seg.probability,
+            words=[
+                Word(
+                    start=float(word.start),
+                    end=float(word.end),
+                    text=str(word.text or "").strip(),
+                    probability=word.probability,
+                )
+                for word in seg.words
+                if str(word.text or "").strip()
+            ],
         )
         for seg in segments
         if seg.text and seg.text.strip()

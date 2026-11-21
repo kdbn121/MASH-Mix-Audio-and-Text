@@ -113,8 +113,9 @@ and the HTTP route has a `karaoke` field of the same three values. The default i
 the picture when the page carries no subtitles of its own.
 
 A karaoke takes a long time to read, because every second of the video has to be read and every word
-has to be recognised. A five minute song takes about a quarter of an hour on an ordinary computer. The
-panel shows a bar that moves while the engine is at it.
+has to be recognised. A five minute song takes between nine and ten minutes on an ordinary computer,
+and the reading of the picture is the slow part. The panel shows a bar that moves while the engine is
+at it.
 
 A track in the wrong language is never used. A track in another language is worse than no track
 at all, so the engine falls back on reading the audio rather than on the wrong words.
@@ -148,7 +149,8 @@ mark says it is.
 | 11. Repetition control | Consecutive identical lines beyond `max_repeats` are dropped | A decoder that loops on a sung phrase repeats it for the rest of the track |
 | 12. Merge short lines | A fragment under 1.2 seconds joins the next line when the gap is under 0.8 seconds | A phrase split in two reads badly in a subtitle |
 | 13. Detect the region | The marker vote runs over the joined text | The result carries `bn-BD` or `bn-IN` and the evidence behind it |
-| 14. Export | SRT, TXT, VTT, LRC or JSON is written | The format you need for the player you use |
+| 14. Correct | The words a recogniser always gets wrong are replaced | A song that is sung the same way every time gives the same mistake every time |
+| 15. Export | SRT, TXT, VTT, LRC, karaoke or JSON is written | The format you need for the player you use |
 
 The whole thing runs with no size limit, because the audio is processed chunk by chunk rather than as one array.
 
@@ -200,6 +202,22 @@ mash-mix lyrics "song.mp3" -o out --hotword "কবিতা" --hotword "টু�
 ```
 
 The hotwords are folded into the decoder prompt, so they work even on the backends that do not have a separate hotword argument.
+
+### The corrections table
+
+A hotword nudges the model. A correction replaces the word afterwards, so it is certain.
+
+The built in table holds the English spellings that a recogniser is known to get wrong, such as `recieve` for `receive` and `seperate` for `separate`. It is applied to whole words, so `cloud` is not changed inside `cloudy`, and the case and the punctuation of the word are kept.
+
+A table of your own goes on top of the built in one, so your own song can be corrected the way your own song spells it:
+
+```python
+from mash_mix.lang.corrections import apply_corrections
+
+text = apply_corrections("Ore nil doriya", {"doriya": "doriya"})
+```
+
+The number of corrected lines is in the result under `meta["corrected_words"]`.
 
 ### The initial prompt
 
@@ -386,6 +404,39 @@ The karaoke format. The timestamp is in brackets and the line follows it directl
 ```
 
 The LRC timestamp is in minutes, seconds and hundredths.
+
+### Karaoke SRT
+
+An SRT file with the word that is being sung marked inside the line. The whole line is on the screen the whole time, and the mark travels along it as the song is sung.
+
+This needs the time of every word, so it needs a backend that gives word level timings. The local and hosted recognisers all give them, and a line that came from a page subtitle does not, so a page subtitle is written the plain way.
+
+```
+1
+00:00:00,000 --> 00:00:00,500
+<b>ওরে</b> নীল দরিয়া
+
+2
+00:00:00,500 --> 00:00:01,000
+ওরে <b>নীল</b> দরিয়া
+
+3
+00:00:01,000 --> 00:00:01,600
+ওরে নীল <b>দরিয়া</b>
+```
+
+Ask for it by name:
+
+```bash
+mash-mix lyrics song.mp3 -o out --format karaoke
+mash-mix transcribe song.wav --format karaoke
+```
+
+The ASS format carries the same thing in the way that format expects, with the `k` tag that tells a player to change the colour of a syllable as it is sung:
+
+```
+Dialogue: 0,0:00:00.00,0:00:01.60,Default,,0,0,0,,{\k50}ওরে {\k50}নীল {\k60}দরিয়া
+```
 
 ### JSON
 

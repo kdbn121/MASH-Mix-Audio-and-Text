@@ -33,7 +33,7 @@ Extract lyrics from a song or a spoken track.
 | `audio` | required | The audio or video file. Any format, any length. A web address is accepted too |
 | `-o`, `--output-dir` | `lyrics-out` | Where to write the files |
 | `--stem` | the title, or `lyrics` | The base name for the written files |
-| `--format` | `srt` and `txt` | The output format. Repeat the flag for more than one. One of `srt`, `txt`, `vtt`, `lrc`, `json` |
+| `--format` | `srt` and `txt` | The output format. Repeat the flag for more than one. One of `srt`, `txt`, `vtt`, `lrc`, `json`, `karaoke` |
 | `--lang`, `--language` | `auto` | The language tag. `auto` finds the language on its own. Any ISO 639-1 code, and `bn-BD` or `bn-IN` for a region |
 | `--script` | `bangla` | The writing system of the lines. `bangla` or `banglish` |
 | `--backend` | `auto` | The speech to text backend |
@@ -129,7 +129,7 @@ Transcribe speech to text.
 |---|---|---|
 | `audio` | required | The audio or video file |
 | `-o`, `--output` | none | Write the transcript to this file. Without it the text goes to the terminal |
-| `--format` | `txt` | The output format. One of `txt`, `json`, `srt`, `vtt` |
+| `--format` | `txt` | The output format. One of `txt`, `json`, `srt`, `vtt`, `karaoke` |
 | `--lang`, `--language` | empty | The language tag. Empty means the model decides |
 | `--backend` | `auto` | The speech to text backend |
 | `--model` | the backend default | The model id for the backend |
@@ -154,7 +154,7 @@ mash-mix transcribe "interview.wav" --format srt -o interview.srt --timestamps
 mash-mix transcribe "interview.wav" --backend sherpa-onnx --model /models/whisper-bn --lang bn-BD
 ```
 
-The `srt` and `vtt` formats write their own file. Without `--output` the file is called `transcript.srt` or `transcript.vtt` in the working directory.
+The `srt`, `vtt` and `karaoke` formats write their own file. Without `--output` the file is called `transcript.srt`, `transcript.vtt` or `transcript.srt` in the working directory. The `karaoke` format is an SRT with the word being sung marked inside the line, so it needs a backend that gives the time of every word.
 
 ## speak
 

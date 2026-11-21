@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         dest="formats",
         action="append",
-        choices=["srt", "txt", "vtt", "lrc", "json"],
+        choices=["srt", "txt", "vtt", "lrc", "json", "karaoke"],
         help="Output format. Repeat for more than one. Default: srt and txt.",
     )
     _add_common_language(lyrics, default="auto")
@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         dest="output_format",
         default="txt",
-        choices=["txt", "json", "srt", "vtt"],
+        choices=["txt", "json", "srt", "vtt", "karaoke"],
         help="Output format. Default: txt",
     )
     _add_common_language(tr, default="")
@@ -128,6 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--hotword", action="append", dest="hotwords", default=None)
     tr.add_argument("--prompt", default=None)
     tr.add_argument("--timestamps", action="store_true", help="Prefix each line with a time.")
+    tr.add_argument(
+        "--audio-url",
+        default=None,
+        help="The address of the audio on the internet. Only the hosted backends "
+        "that fetch the file themselves use it.",
+    )
 
     # -- speak ----------------------------------------------------------
     speak = sub.add_parser("speak", help="Synthesize speech from text.")
@@ -296,6 +302,11 @@ def _cmd_lyrics(args: argparse.Namespace) -> int:
             elif lowered == "lrc":
                 path = folder / f"{base}.lrc"
                 write_subtitles(result.lines, str(path), fmt="lrc")
+            elif lowered == "karaoke":
+                # The karaoke file is an SRT with the word that is being sung
+                # marked inside the line, so it carries the .srt name.
+                path = folder / f"{base}.karaoke.srt"
+                write_subtitles(result.lines, str(path), fmt="karaoke", title=result.title)
             else:
                 continue
             written[lowered] = str(path)
@@ -361,6 +372,12 @@ def _cmd_transcribe(args: argparse.Namespace) -> int:
     from .export.subtitles import segments_to_lines, write_subtitles
     from .tasks.transcribe import transcribe
 
+    # The address of the audio is only given to the backends that fetch the
+    # file themselves, so the other backends never see it.
+    extra = {}
+    if args.audio_url:
+        extra["audio_url"] = args.audio_url
+
     result = transcribe(
         args.audio,
         backend=args.backend,
@@ -370,15 +387,17 @@ def _cmd_transcribe(args: argparse.Namespace) -> int:
         hotwords=args.hotwords,
         initial_prompt=args.prompt,
         script=args.script,
+        **extra,
     )
 
     if args.output_format == "json":
         content = json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
-    elif args.output_format in ("srt", "vtt"):
+    elif args.output_format in ("srt", "vtt", "karaoke"):
         content = ""
         path = args.output
         if path is None:
-            path = f"transcript.{args.output_format}"
+            suffix = "srt" if args.output_format == "karaoke" else args.output_format
+            path = f"transcript.{suffix}"
         write_subtitles(
             segments_to_lines(result.segments),
             path,

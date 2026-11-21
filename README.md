@@ -254,7 +254,7 @@ before, and a song is exactly where that shows.
 
 ### The hosted recognisers
 
-Two backends read the audio somewhere other than this machine. They are never reached
+Four backends read the audio somewhere other than this machine. They are never reached
 on their own, because the audio has to leave the machine to reach them, so the caller
 has to name one.
 
@@ -270,6 +270,23 @@ mash-mix lyrics "bangla song.mp3" --backend elevenlabs
 Without a key the backend reports itself unavailable and stays out of the way. It
 gives the time of every word, so the karaoke lines keep their timings.
 
+**Azure Fast Transcription** hears many languages well without a download, and it can
+name the speakers without anything but the Azure key:
+
+```bash
+$env:AZURE_SPEECH_KEY = "your key here"
+$env:AZURE_SPEECH_REGION = "eastus"
+mash-mix lyrics "bangla song.mp3" --backend azure-stt
+```
+
+**DashScope Qwen3 ASR** gives the time of every word. It fetches the audio itself, so
+it needs the address of the file rather than the file:
+
+```bash
+$env:DASHSCOPE_API_KEY = "your key here"
+mash-mix transcribe "song.wav" --backend dashscope-asr --audio-url "https://example.com/song.wav"
+```
+
 **Meta SeamlessM4T** is the multilingual model from Meta. It reads Bengali as well as
 most languages and it runs locally, but it needs a large download and a lot of memory:
 
@@ -279,6 +296,19 @@ mash-mix lyrics "bangla song.mp3" --backend seamless-m4t
 
 It gives the time of a sentence and not the time of a word, so the local Whisper
 backends are the better choice when a karaoke line needs the time of a word inside it.
+
+### Naming the speakers
+
+**WhisperX** aligns the words of a transcript to the sound, so the time of every word
+is exact rather than approximate, and it can tell who is speaking:
+
+```bash
+pip install "mash-mix-audio-and-text[align]"
+mash-mix lyrics "interview.wav" --backend whisperx
+```
+
+The speaker part needs a model from Hugging Face, so it needs a token in `HF_TOKEN`.
+Without a token the words are still aligned and the speakers are left empty.
 
 ### Measuring the result
 

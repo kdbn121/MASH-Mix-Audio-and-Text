@@ -184,6 +184,94 @@ Limits: no Python model code at all, so word level control is limited to what th
 result = transcribe("clip.wav", backend="whisper.cpp", model="/models/ggml-small.bin")
 ```
 
+### whisperx
+
+| | | |
+|---|---|---|
+| Package | `whisperx` | 
+| Install | `pip install 'mash-mix-audio-and-text[align]'` | 
+| Default model | `small` | 
+| Backend name | `whisperx` | 
+| Platforms | Windows, Linux, macOS | 
+
+WhisperX does three things a plain recogniser does not. It aligns the words of a transcript to the sound, so the time of every word is exact rather than approximate. It can tell who is speaking, so the `speaker` field of every segment is filled in. And it runs the same Whisper weights through CTranslate2, so it is quick without a graphics card.
+
+Strengths: it is the only backend in this package that names the speakers. A song with two voices and a conversation with four of them both come back with the name of the speaker on every line, which is what a transcript of a conversation needs.
+
+Limits: the speaker part needs a model from Hugging Face, so it needs a token in the `HF_TOKEN` environment variable. Without a token the words are still aligned and the speakers are left empty. Everything runs on this machine, and the model is downloaded once.
+
+```python
+result = transcribe("clip.wav", backend="whisperx", model="small")
+```
+
+## Hosted recognisers
+
+These three run on somebody else's computer. They are never chosen by the automatic selection, because the audio would leave the machine without being asked. They are named on purpose:
+
+```bash
+mash-mix transcribe song.wav --backend elevenlabs
+mash-mix transcribe song.wav --backend azure-stt
+```
+
+Each one needs an account and a key in the environment. Without the key the backend reports itself unavailable and is never used.
+
+### elevenlabs
+
+| | | |
+|---|---|---|
+| Package | None, the standard library is enough | 
+| Install | Put the key in `ELEVENLABS_API_KEY` | 
+| Default model | `scribe_v3` | 
+| Backend name | `elevenlabs` | 
+| Platforms | Windows, Linux, macOS | 
+
+The hosted Scribe model of ElevenLabs. It is the strongest hosted recogniser that can be pointed at a Bangla song without a download and without the memory a large local model needs. The word level timings come back with the result, so the karaoke subtitle keeps working.
+
+### azure-stt
+
+| | | |
+|---|---|---|
+| Package | None, the standard library is enough | 
+| Install | Put the key in `AZURE_SPEECH_KEY` and the region in `AZURE_SPEECH_REGION` | 
+| Default model | `azure-fast-transcription` | 
+| Backend name | `azure-stt` | 
+| Platforms | Windows, Linux, macOS | 
+
+The Fast Transcription route of Azure AI Speech. It hears many languages well without a download, it gives the time of every word, and it can name the speakers without a Hugging Face token, which is the one thing WhisperX cannot do without one.
+
+Strengths: the speaker labels need nothing but the Azure key. The locales offered when no language is named put Bangla first, because this package is built for Bangla.
+
+Limits: the audio is sent to Azure, so it is opt in. A file longer than about two hours wants the Azure batch route instead.
+
+```python
+result = transcribe("song.wav", backend="azure-stt", language="bn")
+```
+
+### dashscope-asr
+
+| | | |
+|---|---|---|
+| Package | None, the standard library is enough | 
+| Install | Put the key in `DASHSCOPE_API_KEY` | 
+| Default model | `qwen3-asr-flash-filetrans` | 
+| Backend name | `dashscope-asr` | 
+| Platforms | Windows, Linux, macOS | 
+
+The Qwen3 ASR model of Alibaba DashScope. It gives the time of every word, which is what a karaoke subtitle needs.
+
+Limits: DashScope fetches the audio itself, from a place on the internet it can reach. A file on this machine cannot be named to it, so this backend needs the address of the file:
+
+```python
+result = transcribe(
+    "song.wav",
+    backend="dashscope-asr",
+    language="bn",
+    audio_url="https://example.com/song.wav",
+)
+```
+
+Without an address the backend says so plainly and returns nothing, rather than pretending to work.
+
 ## Text to speech backends
 
 ### mms-tts

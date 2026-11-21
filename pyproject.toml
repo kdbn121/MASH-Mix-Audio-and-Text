@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mash-mix-audio-and-text"
-version = "0.5.0"
+version = "0.6.0"
 description = "Cross-platform speech and text engine: analysis, extraction, song-to-lyric, TTS, STT and STS, with first-class Bangla (bn-BD, bn-IN) support."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -87,9 +87,13 @@ karaoke = [
   "easyocr>=1.7.1",
   "opencv-python-headless>=4.10.0.84",
 ]
+# Aligning the words of a transcript to the sound and naming the speakers.
+align = [
+  "whisperx>=3.1",
+]
 # Everything a desktop developer usually wants.
 full = [
-  "mash-mix-audio-and-text[stt,tts,edge,server,analysis,sources,karaoke]",
+  "mash-mix-audio-and-text[stt,tts,edge,server,analysis,sources,karaoke,align]",
 ]
 dev = [
   "pytest>=7.4",

@@ -4,6 +4,53 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.6.0] - 2026-11-21
+
+More speech engines, and the words of a song can now be marked as they are sung.
+
+### Added
+
+- **The karaoke subtitle.** An SRT file with the word that is being sung marked
+  inside the line. The whole line is on the screen the whole time, and the mark
+  travels along it as the song is sung. The ASS form carries the same thing with
+  the `k` tag that tells a player to change the colour of a syllable.
+- **`mash_mix.export.word_cues`.** The cue builder that turns word timings into
+  subtitles. A cue never crosses a silence, never holds more words than the
+  limit, never runs past the time limit, and closes early after a full stop. A
+  short cue is held back rather than merged, because merging would break the
+  character limit.
+- **The styles `plain`, `word_by_word` and `karaoke`.** Every subtitle writer
+  takes one. A line that carries no word timings cannot be marked, so it is
+  written the plain way rather than marked wrongly.
+- **`mash_mix.lang.corrections`.** The pass that fixes the words a recogniser
+  always gets wrong. The table is applied to whole words, so the case and the
+  punctuation are kept, and a table of your own goes on top of the built in one.
+- **The `azure-stt` backend.** The Fast Transcription route of Azure AI Speech.
+  It hears many languages well without a download, it gives the time of every
+  word, and it names the speakers without a Hugging Face token.
+- **The `dashscope-asr` backend.** The Qwen3 ASR model of Alibaba DashScope. It
+  gives the time of every word. It fetches the audio itself, so it needs the
+  address of the file and says so plainly when it does not have one.
+- **The `whisperx` backend.** It aligns the words of a transcript to the sound,
+  so the time of every word is exact rather than approximate, and it can tell
+  who is speaking. The speaker part needs a token in `HF_TOKEN`. Everything
+  runs on this machine.
+- **The `align` extra.** `pip install "mash-mix-audio-and-text[align]"`. The
+  `full` extra now includes it.
+- **`--format karaoke` on the command line** and a `karaoke` download on the
+  HTTP route. The file is called `<name>.karaoke.srt`.
+- **`--audio-url` on the command line.** The address of the audio on the
+  internet, for the hosted backends that fetch the file themselves.
+
+### Changed
+
+- **The word timings of a line are kept only when the text still matches the
+  words.** A line that was script repaired or repeat collapsed no longer lines
+  up with the timings it came with, so a highlight built on them would lie.
+- **The hosted recognisers are never chosen by the automatic selection.** The
+  audio would leave the machine without being asked, so they are named on
+  purpose, as they always were.
+
 ## [0.5.0] - 2026-11-21
 
 The words of a karaoke are read off the picture of the video.
@@ -61,8 +108,8 @@ The words of a karaoke are read off the picture of the video.
 - **The server keeps answering while a long run is at it.** A route that does
   a long piece of work now runs it in a worker instead of holding the event
   loop, so the health check and the download answer while the engine is busy.
-  Reading the words of a karaoke off the picture of a video takes a quarter of
-  an hour on an ordinary computer.
+  Reading the words of a karaoke off the picture of a video takes about ten
+  minutes on an ordinary computer.
 - **The series of the sweep and the rows of the song are in step.** A row that
   was left out of the song no longer shifts the timings of the rows after it.
 

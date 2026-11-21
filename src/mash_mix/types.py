@@ -154,13 +154,19 @@ class Transcription:
 
 @dataclass
 class LyricLine:
-    """One lyric line with its time span. Used for SRT, LRC and VTT export."""
+    """One lyric line with its time span. Used for SRT, LRC and VTT export.
+
+    ``words`` holds the time of every word when the backend gave one. It is
+    empty for a line that came from a page subtitle or from a picture, because
+    those have no word timings to give.
+    """
 
     start: float
     end: float
     text: str
     speaker: Optional[str] = None
     probability: Optional[float] = None
+    words: List[Word] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -169,6 +175,7 @@ class LyricLine:
             "text": self.text,
             "speaker": self.speaker,
             "probability": None if self.probability is None else round(float(self.probability), 4),
+            "words": [w.to_dict() for w in self.words],
         }
 
 

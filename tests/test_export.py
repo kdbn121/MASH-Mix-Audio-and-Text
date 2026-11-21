@@ -116,6 +116,35 @@ def test_write_subtitles_writes_a_vtt_file(tmp_path):
     assert target.read_text(encoding="utf-8").startswith("WEBVTT")
 
 
+def test_write_subtitles_writes_a_karaoke_file(tmp_path):
+    from mash_mix.types import Word
+
+    lines = [
+        LyricLine(
+            start=0.0,
+            end=1.6,
+            text="one two",
+            words=[
+                Word(start=0.0, end=0.5, text="one"),
+                Word(start=0.5, end=1.0, text="two"),
+            ],
+        )
+    ]
+    target = tmp_path / "lyrics.karaoke.srt"
+    write_subtitles(lines, str(target), fmt="karaoke")
+    content = target.read_text(encoding="utf-8")
+    assert "<b>one</b>" in content
+    assert "one <b>two</b>" in content
+
+
+def test_write_subtitles_falls_back_to_plain_when_there_are_no_word_times(tmp_path):
+    target = tmp_path / "lyrics.karaoke.srt"
+    write_subtitles(LINES, str(target), fmt="karaoke")
+    content = target.read_text(encoding="utf-8")
+    assert "<b>" not in content
+    assert "প্রথম লাইন" in content
+
+
 def test_write_subtitles_rejects_an_unknown_format(tmp_path):
     import pytest
 

@@ -557,6 +557,7 @@ def extract_lyrics(
     """
     from ..backends.registry import get_stt
     from ..lang.catalogue import model_language, resolve_entry
+    from ..lang.corrections import apply_corrections
     from ..lang.normalize import clean_asr_text, is_bangla_text, normalize_bangla
     from ..lang.registry import is_bangla
     from ..lang.script import needs_script_repair, repair_to_bangla
@@ -695,6 +696,7 @@ def extract_lyrics(
     dropped_loops = 0
     dropped_noise = 0
     collapsed = 0
+    corrected = 0
     for seg in _split_on_pauses(segments):
         text = clean_asr_text(seg.text)
         if not text:
@@ -710,15 +712,33 @@ def extract_lyrics(
             dropped_loops += 1
             continue
         tightened = _collapse_word_repeats(text)
-        if tightened != text:
+        changed = tightened != text
+        if changed:
             collapsed += 1
             text = tightened
         if bangla_requested and needs_script_repair(text, target="bangla"):
             # The model answered in Devanagari. Bring it back to Bangla.
             text = repair_to_bangla(text)
             repaired += 1
+            changed = True
         if is_bangla_text(text):
             text = normalize_bangla(text, digits="keep")
+        # The time of every word is kept only when the text still matches the
+        # words. A line that was repaired or collapsed no longer lines up with
+        # the timings it came with, so a highlight built on them would lie.
+        words = list(seg.words) if not changed else []
+        if words:
+            from ..lang.corrections import correct_words
+
+            fixed = correct_words(words)
+            if [w.text for w in fixed] != [w.text for w in words]:
+                corrected += 1
+            words = fixed
+        else:
+            fixed_text = apply_corrections(text)
+            if fixed_text != text:
+                corrected += 1
+                text = fixed_text
         lines.append(
             LyricLine(
                 start=float(seg.start),
@@ -726,6 +746,7 @@ def extract_lyrics(
                 text=text,
                 speaker=seg.speaker,
                 probability=seg.probability,
+                words=words,
             )
         )
 
@@ -788,6 +809,7 @@ def extract_lyrics(
             "dropped_loops": dropped_loops,
             "dropped_noise": dropped_noise,
             "collapsed_repeats": collapsed,
+            "corrected_words": corrected,
         },
     )
 
@@ -830,6 +852,11 @@ def extract_lyrics_to_files(
         elif lowered == "lrc":
             path = folder / f"{base}.lrc"
             write_subtitles(result.lines, str(path), fmt="lrc")
+        elif lowered == "karaoke":
+            # The karaoke file is an SRT with the word that is being sung
+            # marked inside the line, so it carries the .srt name.
+            path = folder / f"{base}.karaoke.srt"
+            write_subtitles(result.lines, str(path), fmt="karaoke", title=result.title)
         elif lowered == "json":
             path = folder / f"{base}.json"
             write_text(str(path), result.to_dict() and __import__("json").dumps(

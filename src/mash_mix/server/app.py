@@ -7,8 +7,8 @@ transcription routes so existing tools can point at it.
 
 A route that does a long piece of work is written as a plain function and not
 as a coroutine, so the server runs it in a worker and keeps answering while
-it works. Reading the words of a karaoke off the picture of a video takes a
-quarter of an hour on an ordinary computer, and the engine must still answer
+it works. Reading the words of a karaoke off the picture of a video takes
+about ten minutes on an ordinary computer, and the engine must still answer
 the health check and the download while it is at it.
 """
 
@@ -246,11 +246,16 @@ def _lyrics_payload(
     txt_path = folder / f"{stem}.txt"
     vtt_path = folder / f"{stem}.vtt"
     lrc_path = folder / f"{stem}.lrc"
+    karaoke_path = folder / f"{stem}.karaoke.srt"
 
     write_subtitles(result.lines, str(srt_path), fmt="srt", title=result.title)
     write_text(str(txt_path), result.text + "\n")
     write_subtitles(result.lines, str(vtt_path), fmt="vtt", title=result.title)
     write_subtitles(result.lines, str(lrc_path), fmt="lrc")
+    # The karaoke file is an SRT with the word that is being sung marked inside
+    # the line. It is only useful when the words carry their own timings, so
+    # it is written as a plain subtitle when they do not.
+    write_subtitles(result.lines, str(karaoke_path), fmt="karaoke", title=result.title)
 
     job: Dict[str, Any] = {
         "result": result,
@@ -259,6 +264,7 @@ def _lyrics_payload(
             "txt": str(txt_path),
             "vtt": str(vtt_path),
             "lrc": str(lrc_path),
+            "karaoke": str(karaoke_path),
         },
     }
 
@@ -281,6 +287,7 @@ def _lyrics_payload(
             "txt": f"/api/lyrics/{job_id}/download/txt",
             "vtt": f"/api/lyrics/{job_id}/download/vtt",
             "lrc": f"/api/lyrics/{job_id}/download/lrc",
+            "karaoke": f"/api/lyrics/{job_id}/download/karaoke",
         },
     }
 
@@ -439,6 +446,7 @@ def download(job_id: str, fmt: str) -> Any:
         "txt": "text/plain",
         "vtt": "text/vtt",
         "lrc": "text/plain",
+        "karaoke": "application/x-subrip",
     }.get(fmt.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media, filename=Path(path).name)
 

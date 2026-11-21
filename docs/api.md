@@ -28,7 +28,7 @@ The server has no authentication. Bind it to `127.0.0.1` unless it sits behind a
 | GET | `/api/languages` | The language registry |
 | GET | `/api/models` | The model catalogue |
 | POST | `/api/lyrics` | Upload an audio file, get lyric lines and download links |
-| GET | `/api/lyrics/{job_id}/download/{fmt}` | Download `srt`, `txt`, `vtt` or `lrc` |
+| GET | `/api/lyrics/{job_id}/download/{fmt}` | Download `srt`, `txt`, `vtt`, `lrc` or `karaoke` |
 | POST | `/api/analyze` | Upload an audio file, get its levels, its key and its tempo |
 | POST | `/api/transcribe` | Transcribe an upload |
 | POST | `/api/speech` | OpenAI style text to speech, returns audio |
@@ -213,7 +213,8 @@ curl -X POST http://localhost:8000/api/lyrics \
     "srt": "/api/lyrics/a1b2c3d4e5f6/download/srt",
     "txt": "/api/lyrics/a1b2c3d4e5f6/download/txt",
     "vtt": "/api/lyrics/a1b2c3d4e5f6/download/vtt",
-    "lrc": "/api/lyrics/a1b2c3d4e5f6/download/lrc"
+    "lrc": "/api/lyrics/a1b2c3d4e5f6/download/lrc",
+    "karaoke": "/api/lyrics/a1b2c3d4e5f6/download/karaoke"
   }
 }
 ```
@@ -229,7 +230,7 @@ curl -X POST http://localhost:8000/api/lyrics \
 | `text` | string | The lyric lines joined by newlines |
 | `lines` | array | The lyric lines with their times |
 | `meta` | object | The chunk count, the regional detection evidence and the pipeline counters |
-| `downloads` | object | The four download links |
+| `downloads` | object | The five download links |
 
 An error returns status 500 with the message in `detail`.
 
@@ -301,14 +302,15 @@ curl -X POST http://localhost:8000/api/lyrics/url \
     "srt": "/api/lyrics/a1b2c3d4e5f6/download/srt",
     "txt": "/api/lyrics/a1b2c3d4e5f6/download/txt",
     "vtt": "/api/lyrics/a1b2c3d4e5f6/download/vtt",
-    "lrc": "/api/lyrics/a1b2c3d4e5f6/download/lrc"
+    "lrc": "/api/lyrics/a1b2c3d4e5f6/download/lrc",
+    "karaoke": "/api/lyrics/a1b2c3d4e5f6/download/karaoke"
   }
 }
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `lyrics_source` | string | `site subtitles` when the page carried its own words, `speech model` when the audio was read |
+| `lyrics_source` | string | `site subtitles` when the page carried its own words, `speech model` when the audio was read, `video ocr` when the words were read off the picture |
 | `source` | object | What the page said about itself: title, uploader, duration, extractor, the language it named, the script of the title and the subtitle tracks it offers |
 | `meta.pipeline` | object | Every step of the run, with the reason for each one that did not work |
 | `audio` | string | The route that serves the copy of the audio on this machine |
@@ -330,7 +332,7 @@ A job with no audio returns status 404.
 
 ## GET /api/lyrics/{job_id}/download/{fmt}
 
-Download a finished lyric file. The format is one of `srt`, `txt`, `vtt` or `lrc`.
+Download a finished lyric file. The format is one of `srt`, `txt`, `vtt`, `lrc` or `karaoke`.
 
 ```bash
 curl -OJ http://localhost:8000/api/lyrics/a1b2c3d4e5f6/download/srt
@@ -342,13 +344,14 @@ curl -OJ http://localhost:8000/api/lyrics/a1b2c3d4e5f6/download/srt
 | `txt` | `text/plain` | The plain lyric text |
 | `vtt` | `text/vtt` | The WebVTT subtitle file |
 | `lrc` | `text/plain` | The LRC karaoke file |
+| `karaoke` | `application/x-subrip` | The SRT with the word being sung marked inside the line |
 
 ### How the job id works
 
 1. The upload route creates a job id, twelve hexadecimal characters from `uuid.uuid4().hex`.
 2. The uploaded file is streamed to a folder under the temporary directory, in a folder named `mash-mix-jobs/<job_id>`. The write happens in chunks, so a large upload does not have to fit in memory.
-3. The result is written next to it as four files: the SRT, the TXT, the VTT and the LRC.
-4. The job id and the paths of those four files are kept in the in memory job table.
+3. The result is written next to it as five files: the SRT, the TXT, the VTT, the LRC and the karaoke SRT.
+4. The job id and the paths of those five files are kept in the in memory job table.
 5. The download route looks the job id up in that table and serves the file.
 
 Two things follow from that:

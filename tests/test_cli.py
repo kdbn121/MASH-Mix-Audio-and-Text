@@ -90,6 +90,23 @@ def test_the_transcribe_flags():
     assert args.task == "transcribe"
 
 
+def test_the_transcribe_audio_url_flag():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["transcribe", "a.wav", "--backend", "dashscope-asr", "--audio-url", "https://example.com/a.wav"]
+    )
+    assert args.audio_url == "https://example.com/a.wav"
+    assert parser.parse_args(["transcribe", "a.wav"]).audio_url is None
+
+
+def test_the_karaoke_format_is_offered():
+    parser = build_parser()
+    lyrics = parser.parse_args(["lyrics", "a.mp3", "--format", "karaoke"])
+    assert lyrics.formats == ["karaoke"]
+    transcribe = parser.parse_args(["transcribe", "a.wav", "--format", "karaoke"])
+    assert transcribe.output_format == "karaoke"
+
+
 def test_the_speak_flags():
     parser = build_parser()
     args = parser.parse_args(["speak", "hello", "--voice", "bn-female", "--speed", "0.9"])
