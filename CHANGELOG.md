@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.3.0] - 2026-11-21
+
+A link is now a source, and the language of the audio is found on its own.
+
+### Added
+
+- **A link can be used where a file was used.** `mash-mix lyrics` takes a URL
+  and the new `POST /api/lyrics/url` route takes one as well. The audio behind
+  the link is fetched with `yt-dlp`, read exactly like a file that was dropped
+  in, and written out as the same `.srt`, `.txt`, `.vtt` and `.lrc` files. The
+  fetcher is an optional dependency, so the engine works without it and only a
+  request for a link needs it.
+- **The engine finds the language of the audio.** The language is worked out
+  in three steps: the language the page named, then the script of the title and
+  the description, then the model itself. Each step is reported, so a guess is
+  never shown as a fact. The ladder of models is built once the language is
+  known, so a Bangla track gets the Bangla models.
+- **A language other than Bangla keeps the script the recogniser used.** The
+  script repair and the transliteration apply to Bangla only, because there is
+  nothing to convert a Hindi, an Arabic or an English line to.
+- **The international language catalogue.** `mash_mix.lang.catalogue` holds the
+  ISO 639-1 code, the aliases, the writing script and the Windows code page of
+  the legacy files of thirty five languages.
+- **The audio of a fetched song is served back.** The new
+  `GET /api/lyrics/{id}/audio` route returns the copy the engine put on this
+  machine, so a panel can play the song it wrote the lyrics for.
+
+### Fixed
+
+- **The fetcher now writes the file.** The dump flag of the fetcher makes it
+  simulate, and a simulation writes nothing, so a link came back with no audio.
+  The fetch now says: do the work and then print it.
+
 ## [0.2.0] - 2026-11-21
 
 The lyrics of a Bangla song come back right.

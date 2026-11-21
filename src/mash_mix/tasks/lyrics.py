@@ -17,12 +17,12 @@ makes the difference:
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..types import AudioBuffer, LyricLine, LyricsResult, Segment
 from ._common import Timer, pick_backend, to_buffer, to_stereo_buffer
 
-__all__ = ["extract_lyrics", "extract_lyrics_to_files"]
+__all__ = ["extract_lyrics", "extract_lyrics_to_files", "extract_lyrics_from_url"]
 
 
 def _drop_repeated_lines(lines: List[LyricLine], *, max_repeats: int = 2) -> List[LyricLine]:
@@ -315,7 +315,7 @@ def _recognise(
     chunk_seconds: float,
     overlap_seconds: float,
     kwargs: dict,
-) -> Tuple[List[Segment], int]:
+) -> Tuple[List[Segment], int, Dict[str, Any]]:
     """Read a buffer with one recogniser and return its segments.
 
     The audio is handed to the model in one piece when the model can take a
@@ -324,10 +324,14 @@ def _recognise(
     the model the same question again and again with no memory of what came
     before, and a song is exactly where that shows. The chunked path is kept
     for the models that cannot take a long file.
+
+    The third value is what the model said about the language of the audio.
+    A model that was given no language hint works it out on its own, and that
+    answer is what the caller needs when the language was left open.
     """
     samples = buffer.mono()
     if not len(samples):
-        return [], 0
+        return [], 0, {}
 
     call_kwargs: dict = {
         "language": language,
@@ -370,13 +374,26 @@ def _recognise(
                     continue
             raise
 
+    def heard(partial: Any) -> Dict[str, Any]:
+        """What the model said about the language of the audio."""
+        meta = getattr(partial, "meta", None)
+        if not isinstance(meta, dict):
+            return {}
+        code = meta.get("detected_language")
+        if not code:
+            return {}
+        return {
+            "detected_language": str(code),
+            "language_probability": meta.get("language_probability"),
+        }
+
     if _takes_long_audio(engine):
         try:
             partial = run(samples)
         except Exception:
             partial = None
         if partial is not None and partial.segments:
-            return list(partial.segments), 1
+            return list(partial.segments), 1, heard(partial)
 
     from ..audio.chunk import chunk_audio
 
@@ -387,6 +404,7 @@ def _recognise(
         overlap_seconds=overlap_seconds,
     )
     segments: List[Segment] = []
+    detected: Dict[str, Any] = {}
     for chunk in chunks:
         block = chunk["samples"]
         if block is None or len(block) == 0:
@@ -394,7 +412,9 @@ def _recognise(
         offset = chunk["start"]
         partial = run(block)
         segments.extend(_shift(partial.segments, offset))
-    return segments, len(chunks)
+        if not detected:
+            detected = heard(partial)
+    return segments, len(chunks), detected
 
 
 def _takes_long_audio(engine: Any) -> bool:
@@ -414,6 +434,28 @@ def _takes_long_audio(engine: Any) -> bool:
         # proved unstable on a CPU, so the chunked path is used for it.
         return False
     return False
+
+
+def _detect_language(engine: Any, buffer: AudioBuffer) -> Tuple[str, Optional[float]]:
+    """Ask a loaded recogniser what language the audio is in.
+
+    A backend that cannot tell says so by returning nothing, and the caller
+    falls back on what the recognition itself reported.
+    """
+    detector = getattr(engine, "detect_language", None)
+    if not callable(detector):
+        return "", None
+    try:
+        answer = detector(buffer.mono(), buffer.sample_rate)
+    except Exception:
+        return "", None
+    if not answer:
+        return "", None
+    try:
+        code, probability = answer
+    except (TypeError, ValueError):
+        return "", None
+    return str(code or ""), probability
 
 
 def extract_lyrics(
@@ -437,6 +479,7 @@ def extract_lyrics(
     progress: bool = False,
     script: str = "bangla",
     quality: str = "auto",
+    language_hint: Optional[str] = None,
     **kwargs: Any,
 ) -> LyricsResult:
     """Extract lyrics from a song or spoken track.
@@ -447,8 +490,8 @@ def extract_lyrics(
         Path, file object or AudioBuffer. Any format and any length.
     language:
         Language hint. ``bn-BD`` for Bangladeshi Bangla, ``bn-IN`` for Indian
-        Bengali, ``bn`` for automatic regional choice. Pass ``None`` to let
-        the model decide.
+        Bengali, ``bn`` for automatic regional choice. ``auto`` or ``None``
+        finds the language of the audio on its own.
     separate_vocals:
         Pull the vocal stem out of the mix before recognition. Much better on
         dense mixes, slower because it runs a separation model.
@@ -460,14 +503,21 @@ def extract_lyrics(
     script:
         The writing system of the returned lines. ``bangla`` keeps the native
         script and writes out any romanised Bangla the recogniser produced.
-        ``banglish`` returns the same content in Latin letters.
+        ``banglish`` returns the same content in Latin letters. A language
+        that is not Bangla keeps the script the recogniser used, because
+        there is nothing to convert it to.
     quality:
         Which model to reach for. ``auto`` picks the model that fits the
         language, ``best`` forces the strongest one and ``fast`` starts at
         the quick one. When a model cannot be loaded the next one in the
         ladder is tried, so a request always comes back with lyrics.
+    language_hint:
+        What is already known about the language, used when the language was
+        left open. The page a link points at may name its own language, and
+        that answer is better than a guess.
     """
     from ..backends.registry import get_stt
+    from ..lang.catalogue import resolve_entry
     from ..lang.dialect import detect_region
     from ..lang.normalize import clean_asr_text, is_bangla_text, normalize_bangla
     from ..lang.registry import is_bangla
@@ -499,16 +549,33 @@ def extract_lyrics(
 
     name = pick_backend("stt", backend)
 
+    # The language of the request. An open request means the engine finds the
+    # language of the audio on its own.
+    requested = (language or "").strip()
+    auto_language = requested.lower() in ("", "auto")
+    effective: Optional[str] = None if auto_language else requested
+    language_source = "requested"
+    if auto_language and language_hint:
+        entry = resolve_entry(language_hint)
+        if entry:
+            effective = entry.iso639_1
+            language_source = "hint"
+
     # The ladder of models to try. The first one that loads and reads the
     # audio does the work, and the result says which one it was.
-    candidates = plan_for(language, quality=quality, model=model, backend=backend)
+    candidates = plan_for(effective, quality=quality, model=model, backend=backend)
     chosen = None
     segments: List[Segment] = []
     failures: List[str] = []
     chunk_count = 0
+    detected_language = ""
+    language_probability: Optional[float] = None
+    index = 0
 
     with Timer() as timer:
-        for candidate in candidates:
+        while index < len(candidates):
+            candidate = candidates[index]
+            index += 1
             try:
                 engine = get_stt(candidate.backend, model=candidate.model)
             except Exception as exc:
@@ -517,11 +584,28 @@ def extract_lyrics(
                 failures.append(f"{candidate.model}: {exc}")
                 continue
 
+            if auto_language and not effective:
+                # The model is loaded already, so it can be asked what it
+                # hears. One short pass over the first seconds is enough.
+                code, probability = _detect_language(engine, buffer)
+                if code:
+                    effective = code
+                    language_source = "model"
+                    language_probability = probability
+                    # The ladder is built for a language, and now there is one.
+                    # The model that is loaded stays at the front, because it
+                    # is the one that has to do the work.
+                    replanned = plan_for(
+                        effective, quality=quality, model=model, backend=backend
+                    )
+                    rest = [item for item in replanned if item != candidate]
+                    candidates = [candidate] + rest
+
             try:
-                read_segments, read_chunks = _recognise(
+                read_segments, read_chunks, heard = _recognise(
                     engine,
                     buffer,
-                    language=language,
+                    language=effective,
                     initial_prompt=initial_prompt,
                     hotwords=hotwords,
                     engine_vad=engine_vad,
@@ -534,7 +618,7 @@ def extract_lyrics(
                 failures.append(f"{candidate.model}: {exc}")
                 continue
 
-            if not read_segments and candidates.index(candidate) + 1 < len(candidates):
+            if not read_segments and index < len(candidates):
                 # The model loaded but heard nothing. A stronger model may do
                 # better, so the ladder continues.
                 failures.append(f"{candidate.model}: heard nothing")
@@ -544,6 +628,13 @@ def extract_lyrics(
             segments = read_segments
             chunk_count = read_chunks
             name = candidate.backend
+            if heard:
+                detected_language = str(heard.get("detected_language") or "")
+                if language_probability is None:
+                    language_probability = heard.get("language_probability")
+                if auto_language and not effective and detected_language:
+                    effective = detected_language
+                    language_source = "model"
             break
 
     if chosen is None:
@@ -551,7 +642,9 @@ def extract_lyrics(
         raise RuntimeError(f"The lyrics could not be read. {detail}")
 
     lines: List[LyricLine] = []
-    bangla_requested = is_bangla(language) if language else False
+    # The language of the audio decides what the text needs. A language that
+    # is not Bangla keeps the script the recogniser used.
+    bangla_requested = is_bangla(effective) if effective else False
     repaired = 0
     dropped_loops = 0
     dropped_noise = 0
@@ -596,21 +689,41 @@ def extract_lyrics(
 
     full_text = "\n".join(line.text for line in lines)
 
+    # A text that came back in the Bengali script is Bangla, whatever the
+    # detector said about it. A detector that guesses wrong on a sung track
+    # must not cost the caller the Bangla repair and the region.
+    if not bangla_requested and is_bangla_text(full_text):
+        bangla_requested = True
+
     # One decision for the whole document: is this song written in romanised
     # Bangla, and which script should the lines come back in.
     from ..lang.translit import apply_script, resolve_script_target
 
-    target_script = resolve_script_target(full_text, script)
-    if target_script:
-        for line in lines:
-            line.text = apply_script(line.text, target_script)
-        full_text = "\n".join(line.text for line in lines)
+    target_script = ""
+    if bangla_requested:
+        target_script = resolve_script_target(full_text, script)
+        if target_script:
+            for line in lines:
+                line.text = apply_script(line.text, target_script)
+            full_text = "\n".join(line.text for line in lines)
 
-    detected = detect_region(full_text, default=language or "bn-BD")
+    # A Bangla text carries a region, Bangladesh or India. A text in any other
+    # language carries the language itself and nothing more.
+    asked_for = language_source == "requested"
+    if bangla_requested and not asked_for:
+        # The text itself says Bangla, so the region comes from the text.
+        detected = detect_region(full_text, default="bn-BD")
+        result_language = detected.tag
+    elif effective and is_bangla(effective):
+        detected = detect_region(full_text, default=effective)
+        result_language = detected.tag
+    else:
+        detected = detect_region(full_text, default="bn-BD")
+        result_language = effective or detected_language or "und"
 
     return LyricsResult(
         lines=lines,
-        language=detected.tag if language is None else language,
+        language=result_language,
         duration=buffer.duration,
         title=title,
         artist=artist,
@@ -623,6 +736,11 @@ def extract_lyrics(
             "model_label": (chosen.label if chosen else "") or "",
             "quality": quality,
             "model_fallbacks": failures,
+            "language_requested": requested or "auto",
+            "language_effective": effective or "",
+            "language_source": language_source,
+            "language_detected": detected_language,
+            "language_probability": language_probability,
             "dialect_confidence": detected.confidence,
             "dialect": detected.dialect,
             "evidence": detected.evidence,
@@ -689,3 +807,42 @@ def extract_lyrics_to_files(
         written[lowered] = str(path)
 
     return written
+
+
+def extract_lyrics_from_url(
+    url: str,
+    work_dir: str,
+    *,
+    language: Optional[str] = "auto",
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Fetch the audio behind a link and read the lyrics out of it.
+
+    The audio is fetched into ``work_dir`` and then read exactly like a file
+    that was dropped in. The language of the track is worked out on its own
+    when the caller did not name one, and the page's own answer about the
+    language is used when it gave one.
+
+    Returns the result and the facts about the source.
+    """
+    from ..sources import fetch_audio
+
+    source = fetch_audio(url, work_dir)
+
+    hint = source.language
+    result = extract_lyrics(
+        source.audio_path,
+        language=language,
+        language_hint=hint or None,
+        title=kwargs.pop("title", None) or source.title,
+        artist=kwargs.pop("artist", None) or source.uploader,
+        **kwargs,
+    )
+    result.meta["source"] = source.to_dict()
+    result.meta["source_language"] = source.language
+    result.meta["source_language_source"] = source.language_source
+    if source.title and not result.title:
+        result.title = source.title
+    if source.uploader and not result.artist:
+        result.artist = source.uploader
+    return {"result": result, "source": source}

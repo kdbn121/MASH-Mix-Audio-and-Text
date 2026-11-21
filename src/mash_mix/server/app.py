@@ -215,6 +215,72 @@ def models() -> List[Dict[str, Any]]:
     return MODEL_CATALOG
 
 
+def _lyrics_payload(
+    job_id: str,
+    folder: Path,
+    result: Any,
+    source_info: Dict[str, Any],
+    audio_path: str = "",
+) -> Dict[str, Any]:
+    """Write the lyric files of a finished job and describe them.
+
+    The same four files are written for an uploaded song and for a song that
+    was fetched from a link, so the download buttons work the same way in
+    both cases.
+
+    The audio of a fetched link is offered too, so the panel can play the
+    song it wrote the lyrics for. The file stays in the job folder on this
+    machine.
+    """
+    stem = (result.title or "lyrics") or "lyrics"
+    stem = "".join(char for char in stem if char not in '<>:"/\\|?*').strip() or "lyrics"
+    srt_path = folder / f"{stem}.srt"
+    txt_path = folder / f"{stem}.txt"
+    vtt_path = folder / f"{stem}.vtt"
+    lrc_path = folder / f"{stem}.lrc"
+
+    write_subtitles(result.lines, str(srt_path), fmt="srt", title=result.title)
+    write_text(str(txt_path), result.text + "\n")
+    write_subtitles(result.lines, str(vtt_path), fmt="vtt", title=result.title)
+    write_subtitles(result.lines, str(lrc_path), fmt="lrc")
+
+    job: Dict[str, Any] = {
+        "result": result,
+        "files": {
+            "srt": str(srt_path),
+            "txt": str(txt_path),
+            "vtt": str(vtt_path),
+            "lrc": str(lrc_path),
+        },
+    }
+
+    payload: Dict[str, Any] = {
+        "job_id": job_id,
+        "language": result.language,
+        "script": result.meta.get("output_script", "bangla"),
+        "duration": result.duration,
+        "title": result.title,
+        "artist": result.artist,
+        "source": source_info,
+        "text": result.text,
+        "lines": [line.to_dict() for line in result.lines],
+        "meta": result.meta,
+        "downloads": {
+            "srt": f"/api/lyrics/{job_id}/download/srt",
+            "txt": f"/api/lyrics/{job_id}/download/txt",
+            "vtt": f"/api/lyrics/{job_id}/download/vtt",
+            "lrc": f"/api/lyrics/{job_id}/download/lrc",
+        },
+    }
+
+    if audio_path and Path(audio_path).exists():
+        job["audio"] = audio_path
+        payload["audio"] = f"/api/lyrics/{job_id}/audio"
+
+    _JOBS[job_id] = job
+    return payload
+
+
 @app.post("/api/lyrics")
 async def lyrics(
     file: UploadFile = File(...),
@@ -251,45 +317,90 @@ async def lyrics(
         shutil.rmtree(folder, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    stem = (title or Path(file.filename or "lyrics").stem) or "lyrics"
-    srt_path = folder / f"{stem}.srt"
-    txt_path = folder / f"{stem}.txt"
-    vtt_path = folder / f"{stem}.vtt"
-    lrc_path = folder / f"{stem}.lrc"
+    return _lyrics_payload(job_id, folder, result, source_info)
 
-    write_subtitles(result.lines, str(srt_path), fmt="srt", title=title)
-    write_text(str(txt_path), result.text + "\n")
-    write_subtitles(result.lines, str(vtt_path), fmt="vtt", title=title)
-    write_subtitles(result.lines, str(lrc_path), fmt="lrc")
 
-    _JOBS[job_id] = {
-        "result": result,
-        "files": {
-            "srt": str(srt_path),
-            "txt": str(txt_path),
-            "vtt": str(vtt_path),
-            "lrc": str(lrc_path),
-        },
-    }
+@app.post("/api/lyrics/url")
+async def lyrics_from_url(
+    url: str = Form(...),
+    language: str = Form("auto"),
+    script: str = Form("bangla"),
+    title: Optional[str] = Form(None),
+    artist: Optional[str] = Form(None),
+    separate_vocals: bool = Form(False),
+    backend: str = Form("auto"),
+    model: Optional[str] = Form(None),
+    quality: str = Form("auto"),
+) -> Dict[str, Any]:
+    """Fetch the audio behind a link and write its lyrics.
 
-    return {
-        "job_id": job_id,
-        "language": result.language,
-        "script": result.meta.get("output_script", script or "bangla"),
-        "duration": result.duration,
-        "title": result.title,
-        "artist": result.artist,
-        "source": source_info,
-        "text": result.text,
-        "lines": [line.to_dict() for line in result.lines],
-        "meta": result.meta,
-        "downloads": {
-            "srt": f"/api/lyrics/{job_id}/download/srt",
-            "txt": f"/api/lyrics/{job_id}/download/txt",
-            "vtt": f"/api/lyrics/{job_id}/download/vtt",
-            "lrc": f"/api/lyrics/{job_id}/download/lrc",
-        },
-    }
+    The engine does the fetching, so the browser never touches the site. The
+    language is worked out on its own when the caller did not name one.
+    """
+    from ..sources import SourceError, is_url
+    from ..tasks.lyrics import extract_lyrics_from_url
+
+    if not is_url(url):
+        raise HTTPException(status_code=400, detail="That is not a web address.")
+
+    job_id = uuid.uuid4().hex[:12]
+    folder = _job_dir(job_id)
+
+    try:
+        outcome = extract_lyrics_from_url(
+            url,
+            str(folder),
+            language=language or "auto",
+            backend=backend,
+            model=model,
+            title=title,
+            artist=artist,
+            separate_vocals=bool(separate_vocals),
+            script=script or "bangla",
+            quality=quality or "auto",
+        )
+    except SourceError as exc:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    result = outcome["result"]
+    source_info = outcome["source"].to_dict()
+    # The path of the file on this machine is of no use to a caller.
+    source_info.pop("audio_path", None)
+    source_info["size_bytes"] = None
+    try:
+        source_info["size_bytes"] = int(Path(outcome["source"].audio_path).stat().st_size)
+    except OSError:
+        source_info["size_bytes"] = None
+
+    payload = _lyrics_payload(
+        job_id,
+        folder,
+        result,
+        source_info,
+        audio_path=outcome["source"].audio_path,
+    )
+    payload["source"]["url"] = url
+    return payload
+
+
+@app.get("/api/lyrics/{job_id}/audio")
+def audio(job_id: str) -> Any:
+    """The audio of a song that was fetched from a link.
+
+    It is the copy the engine put on this machine, so the panel can play the
+    song it wrote the lyrics for without anything travelling anywhere.
+    """
+    job = _JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Unknown job id")
+    path = job.get("audio")
+    if not path or not Path(path).exists():
+        raise HTTPException(status_code=404, detail="This job has no audio")
+    return FileResponse(path, media_type="audio/wav", filename=Path(path).name)
 
 
 @app.get("/api/lyrics/{job_id}/download/{fmt}")

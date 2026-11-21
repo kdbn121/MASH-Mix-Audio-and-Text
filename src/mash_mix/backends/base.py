@@ -9,7 +9,7 @@ call signature so the task layer never needs to know which engine ran.
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -108,6 +108,22 @@ class STTBackend(abc.ABC):
         **kwargs: Any,
     ) -> Transcription:
         """Transcribe mono float32 ``audio`` sampled at ``sample_rate``."""
+
+    def detect_language(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        *,
+        max_seconds: float = 30.0,
+    ) -> Optional[Tuple[str, float]]:
+        """Work out the language of the audio, with how sure the backend is.
+
+        Returns the language code and a confidence, or ``None`` when the
+        backend cannot tell. A backend that can tell does it in one short pass
+        over the first seconds of the sound, which is far cheaper than reading
+        the whole track.
+        """
+        return None
 
     def supported_languages(self) -> List[str]:
         return list(self.info.languages)

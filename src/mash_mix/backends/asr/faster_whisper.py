@@ -480,6 +480,36 @@ class FasterWhisperSTTBackend(STTBackend):
             },
         )
 
+    def detect_language(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        *,
+        max_seconds: float = 30.0,
+    ) -> Optional[Tuple[str, float]]:
+        """Work out the language of the audio with the model's own detector.
+
+        The model reads the first seconds of the sound and scores every
+        language it knows, which is much cheaper than reading the whole track
+        and much better than guessing from the title.
+        """
+        if not self._loaded:
+            self.load()
+        samples = _prepare_audio(audio, sample_rate)
+        limit = int(max(0.0, float(max_seconds)) * float(sample_rate))
+        if limit:
+            samples = samples[:limit]
+        if samples.size == 0:
+            return None
+        try:
+            code, probability, _scores = self._model.detect_language(audio=samples)
+        except Exception:
+            return None
+        if not code:
+            return None
+        base = _split_tag(str(code))[0]
+        return base, float(probability)
+
     def _fall_back_to_cpu(self, exc: Exception) -> bool:
         """Reload on the CPU when the GPU turns out to be unusable.
 

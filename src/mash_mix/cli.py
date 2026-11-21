@@ -20,7 +20,11 @@ def _add_common_language(parser: argparse.ArgumentParser, default: str = "bn-BD"
         "--language",
         dest="language",
         default=default,
-        help="Language tag. Bangla tags: bn, bn-BD, bn-IN. Default: %(default)s",
+        help=(
+            "Language tag. Bangla tags: bn, bn-BD, bn-IN. Any ISO code works, "
+            "for example hi or ar. 'auto' finds the language of the audio. "
+            "Default: %(default)s"
+        ),
     )
 
 
@@ -51,7 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- lyrics ---------------------------------------------------------
     lyrics = sub.add_parser("lyrics", help="Extract lyrics from a song or spoken track.")
-    lyrics.add_argument("audio", help="Audio or video file. Any format, any length.")
+    lyrics.add_argument(
+        "audio",
+        help="Audio or video file, or a link to one. Any format, any length.",
+    )
     lyrics.add_argument("-o", "--output-dir", default="lyrics-out", help="Where to write files.")
     lyrics.add_argument("--stem", default=None, help="Base name for the written files.")
     lyrics.add_argument(
@@ -61,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["srt", "txt", "vtt", "lrc", "json"],
         help="Output format. Repeat for more than one. Default: srt and txt.",
     )
-    _add_common_language(lyrics)
+    _add_common_language(lyrics, default="auto")
     _add_script_option(lyrics)
     lyrics.add_argument("--backend", default="auto", help="Speech to text backend. Default: auto.")
     lyrics.add_argument("--model", default=None, help="Model id for the backend.")
@@ -199,9 +206,74 @@ def _read_text(args: argparse.Namespace) -> str:
 
 
 def _cmd_lyrics(args: argparse.Namespace) -> int:
-    from .tasks.lyrics import extract_lyrics_to_files
+    from .sources import is_url
+    from .tasks.lyrics import extract_lyrics_from_url, extract_lyrics_to_files
 
     formats = args.formats or ["srt", "txt"]
+
+    if is_url(args.audio):
+        # The audio behind a link is fetched into the output folder and then
+        # read exactly like a file that was dropped in.
+        from pathlib import Path
+
+        from .export.plaintext import write_text
+        from .export.subtitles import write_subtitles
+
+        folder = Path(args.output_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        outcome = extract_lyrics_from_url(
+            args.audio,
+            str(folder),
+            language=args.language or "auto",
+            backend=args.backend,
+            model=args.model,
+            title=args.title,
+            artist=args.artist,
+            separate_vocals=args.separate_vocals,
+            separation_model=args.separation_model,
+            chunk_seconds=args.chunk_seconds,
+            overlap_seconds=args.overlap_seconds,
+            hotwords=args.hotwords,
+            initial_prompt=args.prompt,
+            max_repeats=args.max_repeats,
+            script=args.script,
+            quality=args.quality,
+        )
+        result = outcome["result"]
+        source = outcome["source"]
+        base = args.stem or result.title or "lyrics"
+        base = "".join(char for char in base if char not in '<>:"/\\|?*').strip() or "lyrics"
+        written: dict = {}
+        for fmt in formats:
+            lowered = fmt.lower()
+            if lowered == "srt":
+                path = folder / f"{base}.srt"
+                write_subtitles(result.lines, str(path), fmt="srt", title=result.title)
+            elif lowered == "txt":
+                path = folder / f"{base}.txt"
+                write_text(str(path), result.text + "\n")
+            elif lowered in ("vtt", "webvtt"):
+                path = folder / f"{base}.vtt"
+                write_subtitles(result.lines, str(path), fmt="vtt", title=result.title)
+            elif lowered == "lrc":
+                path = folder / f"{base}.lrc"
+                write_subtitles(result.lines, str(path), fmt="lrc")
+            else:
+                continue
+            written[lowered] = str(path)
+        if args.print_text:
+            print(result.text)
+        for fmt, path in written.items():
+            print(f"{fmt}: {path}")
+        print(
+            f"language={result.language} lines={len(result.lines)} "
+            f"duration={result.duration:.1f}s elapsed={result.elapsed:.1f}s "
+            f"model={result.meta.get('model_used') or 'unknown'} "
+            f"source={source.title or source.url}",
+            file=sys.stderr,
+        )
+        return 0
+
     written = extract_lyrics_to_files(
         args.audio,
         args.output_dir,

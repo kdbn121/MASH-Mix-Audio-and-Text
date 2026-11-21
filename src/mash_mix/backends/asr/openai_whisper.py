@@ -364,6 +364,43 @@ class WhisperSTTBackend(STTBackend):
             },
         )
 
+    def detect_language(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        *,
+        max_seconds: float = 30.0,
+    ) -> Optional[Tuple[str, float]]:
+        """Work out the language of the audio with a short reading.
+
+        The reference implementation has no separate detector, so the first
+        seconds are read without a language hint and the answer the model
+        gives is taken.
+        """
+        if not self._loaded:
+            self.load()
+        samples = _prepare_audio(audio, sample_rate)
+        limit = int(max(0.0, float(max_seconds)) * float(sample_rate))
+        if limit:
+            samples = samples[:limit]
+        if samples.size == 0:
+            return None
+        try:
+            result = self._model.transcribe(
+                samples,
+                language=None,
+                task="transcribe",
+                word_timestamps=False,
+                verbose=None,
+            )
+        except Exception:
+            return None
+        code = result.get("language")
+        if not code:
+            return None
+        base = _split_tag(str(code))[0]
+        return base, 1.0
+
     def _empty(self, duration: float, language: Optional[str], exc: Exception) -> Transcription:
         """Return an empty transcription instead of raising on a recognition failure."""
         return Transcription(

@@ -16,6 +16,8 @@ pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Song to lyric](#song-to-lyric)
+- [A link instead of a file](#a-link-instead-of-a-file)
+- [The language of the audio](#the-language-of-the-audio)
 - [The Bangla layer](#the-bangla-layer)
 - [Command line](#command-line)
 - [Web interface and API](#web-interface-and-api)
@@ -72,6 +74,9 @@ pip install "mash-mix-audio-and-text[tts] @ git+https://github.com/kdbn121/MASH-
 # with the web interface and API
 pip install "mash-mix-audio-and-text[server] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 
+# with the fetcher for links
+pip install "mash-mix-audio-and-text[sources] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
+
 # everything a desktop user wants
 pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 ```
@@ -86,6 +91,10 @@ when you ask it for the lyrics.
 
 **ffmpeg is required** for anything other than WAV. It handles mp3, m4a, flac, ogg, opus,
 aac, wma, and video containers, on every platform.
+
+**yt-dlp is required for a link.** The `sources` extra installs it. It reads the public
+pages of the sites and hands back the audio track, so a URL can be used where a file was
+used. The engine works without it, and only a request for a link needs it.
 
 | Platform | Install ffmpeg |
 |---|---|
@@ -352,6 +361,106 @@ question again with no memory of what came before, and a song is where that show
 
 ---
 
+## A link instead of a file
+
+A link is a way of naming a piece of audio. The engine can fetch the audio behind one,
+read it and write the lyric files, in the same way as a file that was dropped in.
+
+```bash
+mash-mix lyrics "https://www.youtube.com/watch?v=AU0mxhZcL1w" -o out --lang auto
+```
+
+```
+out/Bhober Ei.srt
+out/Bhober Ei.txt
+```
+
+Or from Python:
+
+```python
+from mash_mix.tasks.lyrics import extract_lyrics_from_url
+
+outcome = extract_lyrics_from_url(
+    "https://www.youtube.com/watch?v=AU0mxhZcL1w",
+    "out",
+    language="auto",
+)
+
+result = outcome["result"]
+source = outcome["source"]
+print(source.title)         # the name the page gave the song
+print(source.language)      # the language of it
+print(source.language_source)  # where that language came from
+```
+
+The fetching is done with `yt-dlp`, which reads the public pages of the sites. It is an
+optional dependency, so the engine imports and works without it and only a request for a
+link needs it.
+
+**What comes back with the audio.** The engine reports what the page said about itself,
+and what it worked out for itself, apart from one another:
+
+| Field | What it means |
+|---|---|
+| `title` | The name the page gave the song |
+| `uploader` | Who put it there |
+| `duration` | How long it is, in seconds |
+| `declared_language` | The language the page named, when it named one |
+| `guessed_language` | The language read from the script of the title and the description |
+| `script` | The writing system of the title, for example `Bengali` |
+| `language_source` | `declared`, `script`, `model` or `none` |
+| `subtitles` | The subtitle tracks the page offers |
+
+A page that names its language is believed. A page that says nothing is read from the
+script of its title, so a Bengali title in Bengali letters gives Bangla even when the
+page says nothing at all. When the page says nothing and the title says nothing either,
+the model is asked what it hears.
+
+The audio is written into the working folder, and the lyric files are written next to it.
+
+---
+
+## The language of the audio
+
+The language is worked out in three steps, and each step is reported so a guess is never
+shown as a fact.
+
+| Step | Where it comes from | What it means |
+|---|---|---|
+| 1 | The page named it | The site knows its own language, so that answer is used |
+| 2 | The script of the title and the description | A Bengali title in Bengali letters gives Bangla |
+| 3 | The model | The loaded recogniser is asked what it hears in the first seconds of the audio |
+
+```bash
+mash-mix lyrics "song.mp3" --lang auto     # the engine finds the language
+mash-mix lyrics "song.mp3" --lang bn-BD    # the language is forced
+mash-mix lyrics "song.mp3" --lang hi       # any ISO 639-1 code
+```
+
+The result says which one was used and how sure the model was:
+
+```python
+result.meta["language_requested"]     # what the caller asked for, "auto" when open
+result.meta["language_effective"]     # the language that was used
+result.meta["language_source"]        # requested, hint, model or none
+result.meta["language_probability"]   # how sure the model was
+```
+
+The ladder of models is built once the language is known, so a Bangla track gets the
+Bangla models and an international track gets the general ones. A text that comes back in
+the Bengali script is treated as Bangla even when the detector was unsure, because the
+words themselves are better evidence than the guess.
+
+**A language other than Bangla keeps the script the recogniser used.** There is nothing
+to convert a Hindi, an Arabic or an English line to, so the script repair and the
+transliteration apply to Bangla only.
+
+The catalogue of the languages the engine knows lives in `mash_mix.lang.catalogue`. It
+holds the ISO 639-1 code, the aliases a person types, the writing script and the Windows
+code page of the legacy files of each language.
+
+---
+
 ## The Bangla layer
 
 This is the part that makes the package more than a wrapper around a model.
@@ -572,7 +681,9 @@ motion is dropped when the system asks for less motion, and the page prints clea
 |---|---|---|
 | `/` | GET | The web interface |
 | `/api/lyrics` | POST | Upload an audio file, get lyric lines and download links |
+| `/api/lyrics/url` | POST | Give a link, get the audio fetched and its lyric lines and download links |
 | `/api/lyrics/{id}/download/{fmt}` | GET | Download `srt`, `txt`, `vtt` or `lrc` |
+| `/api/lyrics/{id}/audio` | GET | The audio of a song that was fetched from a link |
 | `/api/analyze` | POST | Upload an audio file, get its levels, its key and its tempo |
 | `/api/transcribe` | POST | Transcribe an upload |
 | `/api/speech` | POST | OpenAI style text to speech, returns audio |
@@ -580,6 +691,17 @@ motion is dropped when the system asks for less motion, and the page prints clea
 | `/api/languages` | GET | The language registry |
 | `/api/models` | GET | The model catalogue |
 | `/api/health` | GET | Liveness and what is installed |
+
+The link route works like this:
+
+```bash
+curl -F "url=https://www.youtube.com/watch?v=AU0mxhZcL1w" \
+     -F "language=auto" \
+     http://localhost:8000/api/lyrics/url
+```
+
+It returns the same shape as the upload route, with the facts about the source under
+`source` and the download links under `downloads`.
 
 ---
 
@@ -653,6 +775,7 @@ iOS notes: the `edge` extra gives ONNX Runtime Mobile. Convert the models with
 ```
 src/mash_mix/
   lang/          language registry, normalisation, numerals, transliteration, dialects
+  lang/catalogue.py  the international language table, the scripts and the code pages
   audio/         decoding, resampling, VAD, chunking, analysis, separation
   backends/      the inference adapters, one folder per task
     asr/         speech to text
@@ -660,6 +783,7 @@ src/mash_mix/
     sts/         speech to speech
   tasks/         transcribe, lyrics, synthesize, speak, analyze
   export/        SRT, WebVTT, LRC, ASS, plain text, JSON
+  sources.py     fetching the audio behind a link
   server/        FastAPI app and the web interface
   pipeline.py    one facade over everything
   models.py      the model catalogue with licences
@@ -669,7 +793,8 @@ src/mash_mix/
 The design rules:
 
 1. **No hard dependency on a runtime.** Every backend module imports cleanly without its
-   package installed, and reports itself unavailable instead of crashing.
+   package installed, and reports itself unavailable instead of crashing. The same is true
+   of the fetcher for links.
 2. **One API for every task.** The task layer never imports a backend directly. It asks
    the registry for one.
 3. **Bangla logic lives in one place.** No backend file contains Bangla rules. They live
@@ -708,6 +833,24 @@ The self check scripts live in `scripts/`.
 | `server_check.py` | Runs the HTTP server and the web interface end to end |
 | `sts_check.py` | Runs the speech to speech chain |
 | `cuda_probe.py` | Tells the engine whether the GPU path works on this machine |
+
+---
+
+## Privacy
+
+The engine runs on your machine and it talks to no vendor. The audio never leaves the
+machine, the models are loaded from disk, and the measurements and the lyrics are written
+to files you choose.
+
+**A link is the one thing that reaches the internet.** When you give the engine a link,
+the engine visits that page, the way any downloader does, and the site you named sees
+your address the way it would see the address of any visitor. The audio and the lyrics
+are written onto this machine. Nothing about the song is sent to a vendor, to a
+telemetry service or to an account service.
+
+Two backends break that rule on purpose, and they are never reached on their own. The
+hosted recognisers, `elevenlabs` and `seamless-m4t`, send the audio away from the
+machine, so the caller has to name one. Everything else runs here.
 
 ---
 

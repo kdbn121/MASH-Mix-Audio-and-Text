@@ -189,7 +189,7 @@ def test_a_whole_track_is_read_in_one_call():
     """One call for the whole track, so the song keeps its thread."""
     engine = FakeEngine()
     buffer = AudioBuffer(np.zeros(16000 * 45, dtype=np.float32), 16000, 1)
-    segments, chunks = _recognise(
+    segments, chunks, _heard = _recognise(
         engine,
         buffer,
         language="bn-BD",
@@ -216,7 +216,7 @@ def test_a_model_that_cannot_read_the_track_falls_back_to_chunks():
 
     engine = HalfBroken()
     buffer = AudioBuffer(np.zeros(16000 * 45, dtype=np.float32), 16000, 1)
-    segments, chunks = _recognise(
+    segments, chunks, _heard = _recognise(
         engine,
         buffer,
         language="bn-BD",
@@ -337,7 +337,7 @@ def test_a_backend_that_rejects_a_keyword_still_works():
 
     engine = Narrow()
     buffer = AudioBuffer(np.zeros(16000 * 5, dtype=np.float32), 16000, 1)
-    segments, _chunks = _recognise(
+    segments, _chunks, _heard = _recognise(
         engine,
         buffer,
         language="bn-BD",
