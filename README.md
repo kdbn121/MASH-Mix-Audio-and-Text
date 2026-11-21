@@ -76,6 +76,10 @@ pip install "mash-mix-audio-and-text[server] @ git+https://github.com/kdbn121/MA
 pip install "mash-mix-audio-and-text[full] @ git+https://github.com/kdbn121/MASH-Mix-Audio-and-Text.git"
 ```
 
+The source archive of every release is on the
+[release page](https://github.com/kdbn121/MASH-Mix-Audio-and-Text/releases),
+for anyone who would rather not install from git.
+
 The same package drives the [Chrome extension](https://github.com/kdbn121/MASH-Mix-Audio-and-Text-Extension),
 which measures a song in the browser and sends the file to this engine only
 when you ask it for the lyrics.
