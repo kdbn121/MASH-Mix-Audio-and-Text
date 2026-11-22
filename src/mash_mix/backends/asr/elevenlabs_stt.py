@@ -324,6 +324,7 @@ class ElevenLabsSTTBackend(STTBackend):
             "environment variable. The audio is sent to ElevenLabs, so this "
             "backend is opt in. Word level timings come back with the result."
         ),
+        missing="Put the key in the ELEVENLABS_API_KEY environment variable.",
     )
 
     def __init__(self) -> None:

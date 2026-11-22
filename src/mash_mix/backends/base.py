@@ -31,6 +31,7 @@ class BackendInfo:
         languages: Sequence[str] = (),
         platforms: Sequence[str] = (),
         notes: str = "",
+        missing: str = "",
     ) -> None:
         self.name = name
         self.kind = kind
@@ -40,6 +41,9 @@ class BackendInfo:
         self.languages = list(languages)
         self.platforms = list(platforms)
         self.notes = notes
+        # What is missing when the backend cannot run. It is a short sentence,
+        # so a caller who names the backend is told what to set.
+        self.missing = missing
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,6 +55,7 @@ class BackendInfo:
             "languages": self.languages,
             "platforms": self.platforms,
             "notes": self.notes,
+            "missing": self.missing,
         }
 
 

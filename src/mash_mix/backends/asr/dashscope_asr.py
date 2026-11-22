@@ -234,6 +234,7 @@ class DashScopeASRBackend(STTBackend):
             "in. DashScope fetches the audio itself, so the caller has to give "
             "a public address for it as audio_url."
         ),
+        missing="Put the key in the DASHSCOPE_API_KEY environment variable.",
     )
 
     def __init__(self) -> None:

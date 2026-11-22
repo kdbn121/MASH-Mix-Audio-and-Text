@@ -353,6 +353,10 @@ class AzureSTTBackend(STTBackend):
             "audio is sent to Azure, so this backend is opt in. Word level "
             "timings and the speaker of every phrase come back with the result."
         ),
+        missing=(
+            "Put the key in the AZURE_SPEECH_KEY environment variable and the "
+            "region in AZURE_SPEECH_REGION."
+        ),
     )
 
     def __init__(self) -> None:

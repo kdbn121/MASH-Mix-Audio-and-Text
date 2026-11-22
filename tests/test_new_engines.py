@@ -287,3 +287,32 @@ def test_every_new_backend_says_when_it_is_not_ready(name):
 
     with pytest.raises(BackendUnavailableError):
         get_stt(name)
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("azure-stt", "AZURE_SPEECH_KEY"),
+        ("dashscope-asr", "DASHSCOPE_API_KEY"),
+        ("elevenlabs", "ELEVENLABS_API_KEY"),
+    ],
+)
+def test_a_hosted_backend_says_which_key_to_set(name, expected, monkeypatch):
+    from mash_mix.backends.registry import get_stt
+    from mash_mix.errors import BackendUnavailableError
+
+    for variable in ("AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION", "DASHSCOPE_API_KEY", "ELEVENLABS_API_KEY"):
+        monkeypatch.delenv(variable, raising=False)
+
+    with pytest.raises(BackendUnavailableError) as caught:
+        get_stt(name)
+    assert expected in str(caught.value)
+
+
+def test_a_local_backend_names_the_extra_to_install(monkeypatch):
+    from mash_mix.backends.registry import get_stt
+    from mash_mix.errors import BackendUnavailableError
+
+    with pytest.raises(BackendUnavailableError) as caught:
+        get_stt("whisperx")
+    assert "align" in str(caught.value)

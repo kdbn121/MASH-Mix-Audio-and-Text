@@ -116,6 +116,7 @@ def get_stt(name: str, *, model: Optional[str] = None) -> STTBackend:
     if not backend.is_available():
         info: BackendInfo = backend.info
         hint = f"pip install 'mash-mix-audio-and-text[{info.extra}]'" if info.extra else ""
+        hint = hint or (info.missing or "")
         raise BackendUnavailableError(
             f"Speech to text backend '{name}' is not available on this machine. {hint}".strip()
         )
