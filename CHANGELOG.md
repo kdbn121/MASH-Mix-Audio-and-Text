@@ -50,6 +50,9 @@ More speech engines, and the words of a song can now be marked as they are sung.
 - **The hosted recognisers are never chosen by the automatic selection.** The
   audio would leave the machine without being asked, so they are named on
   purpose, as they always were.
+- **A backend that cannot run says what is missing.** A caller who names a
+  hosted backend without a key is told which key to set, and a caller who names
+  a local backend without its package is told which extra to install.
 
 ## [0.5.0] - 2026-11-21
 
