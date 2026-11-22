@@ -116,6 +116,58 @@ class FakeCapture:
         self.released = True
 
 
+class NumberedCapture(FakeCapture):
+    """A stand in for the video that gives a picture for every frame.
+
+    The picture is the number of the frame, so two ways of reaching the same
+    frame can be compared. The video ends after the frames it has.
+    """
+
+    def read(self):
+        index = self.position
+        self.position += 1
+        if index >= self.frames:
+            return False, None
+        return True, index
+
+
+def test_the_pictures_of_the_walk_are_the_pictures_of_the_jumps():
+    # The video is read through instead of being jumped to, and the pictures
+    # that come out have to be the same ones.
+    capture = NumberedCapture()
+    moments = [0.0, 1.5, 4.0]
+    walked = []
+    karaoke._walk_frames(
+        capture,
+        moments,
+        30.0,
+        lambda moment, picture: walked.append((moment, picture)),
+    )
+    jumped = [(moment, karaoke._frame_at(capture, moment, 30.0)) for moment in moments]
+    assert walked == jumped
+
+
+def test_a_moment_the_video_does_not_reach_is_given_no_picture():
+    capture = NumberedCapture(frames=10)
+    seen = []
+    karaoke._walk_frames(
+        capture,
+        [0.0, 100.0],
+        30.0,
+        lambda moment, picture: seen.append((moment, picture)),
+    )
+    assert seen[0] == (0.0, 0)
+    assert seen[1][0] == 100.0
+    assert seen[1][1] is None
+
+
+def test_the_window_of_the_line_is_read_through():
+    capture = NumberedCapture()
+    pictures = karaoke._walk_window(capture, 1.0, 2.5, 30.0, 0.5)
+    assert [moment for moment, _ in pictures] == [1.0, 1.5, 2.0, 2.5]
+    assert [picture for _, picture in pictures] == [30, 45, 60, 75]
+
+
 def test_the_pieces_of_text_are_put_into_the_rows_they_sit_in():
     boxes = [
         FakeBox(100, 300, 200, 340, "first"),
@@ -457,6 +509,75 @@ def test_a_link_with_no_subtitles_is_read_off_the_picture(monkeypatch, tmp_path)
     assert result.lines[0].text == BANGLA_ONE
     steps = [step["step"] for step in result.meta["pipeline"]["steps"]]
     assert "karaoke" in steps
+
+
+def test_a_link_that_has_been_read_is_not_read_again(monkeypatch, tmp_path):
+    """The words of a karaoke take minutes to read, so they are kept."""
+    import mash_mix.sources as sources_module
+    import mash_mix.tasks.lyrics as lyrics_module
+    from mash_mix.types import LyricLine
+
+    lyrics_module._KARAOKE_READS.clear()
+
+    def fake_metadata(url, **kwargs):
+        return sources_module.SourceInfo(
+            url=url,
+            title="A karaoke",
+            uploader="A channel",
+            duration=232.0,
+            extractor="Youtube",
+            guessed_language="bn",
+            script="Bengali",
+            language_source="script",
+        )
+
+    monkeypatch.setattr("mash_mix.sources.fetch_metadata", fake_metadata)
+    monkeypatch.setattr(
+        "mash_mix.sources.fetch_audio",
+        lambda url, target_dir, **kwargs: sources_module.SourceInfo(
+            url=url,
+            title="A karaoke",
+            duration=232.0,
+            audio_path=str(tmp_path / "source.wav"),
+        ),
+    )
+    monkeypatch.setattr(karaoke, "have_ocr", lambda: True)
+
+    reads = []
+
+    def fake_read(path, **kwargs):
+        reads.append(path)
+        return karaoke.KaraokeResult(
+            lines=[LyricLine(start=18.0, end=24.0, text=BANGLA_ONE)],
+            duration=232.0,
+            band=(0, 100),
+            rows=1,
+            swept=True,
+            elapsed=12.0,
+            language="bn",
+            meta={"frames_read": 232},
+        )
+
+    monkeypatch.setattr(karaoke, "read_burned_in_lyrics", fake_read)
+
+    fetched = []
+
+    def fake_video(url, target_dir, **kwargs):
+        fetched.append(url)
+        return "picture.mp4"
+
+    monkeypatch.setattr("mash_mix.sources.fetch_video", fake_video)
+
+    url = "https://www.youtube.com/watch?v=keptonce"
+    first = lyrics_module.extract_lyrics_from_url(url, str(tmp_path / "work"), language="auto")
+    second = lyrics_module.extract_lyrics_from_url(url, str(tmp_path / "work"), language="auto")
+
+    assert len(reads) == 1
+    assert len(fetched) == 1
+    assert first["result"].lines[0].text == BANGLA_ONE
+    assert second["result"].lines[0].text == BANGLA_ONE
+    assert second["result"].meta["pipeline"]["steps"][-1].get("kept") is True
+    lyrics_module._KARAOKE_READS.clear()
 
 
 def test_the_karaoke_is_not_read_when_the_page_has_subtitles(monkeypatch, tmp_path):

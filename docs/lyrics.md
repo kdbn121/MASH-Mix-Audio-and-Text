@@ -113,9 +113,13 @@ and the HTTP route has a `karaoke` field of the same three values. The default i
 the picture when the page carries no subtitles of its own.
 
 A karaoke takes a long time to read, because every second of the video has to be read and every word
-has to be recognised. A five minute song takes between nine and ten minutes on an ordinary computer,
-and the reading of the picture is the slow part. The panel shows a bar that moves while the engine is
-at it.
+has to be recognised. A five minute song takes about seven minutes on an ordinary computer, and the
+reading of the picture is the slow part. The video is read through rather than jumped to, so the
+reader does not pay for finding it again at every moment, and the report says where the time went.
+The panel shows a bar that moves while the engine is at it.
+
+A link that has been read is answered at once the second time, because the words of the picture are
+kept.
 
 A track in the wrong language is never used. A track in another language is worse than no track
 at all, so the engine falls back on reading the audio rather than on the wrong words.

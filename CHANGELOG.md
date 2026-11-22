@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.6.1] - 2026-11-22
+
+The karaoke reader is quicker, and a link that has been read is answered at once.
+
+### Changed
+
+- **The video is read through instead of being jumped to.** The reader used to
+  jump to every second of the song, and to every moment of the fine search that
+  finds the moment a line starts being sung. Every jump made the video be found
+  again, and that cost more than reading the video through once. The pictures
+  that come out are the same pictures, down to the pixel. On a 297 second video
+  the survey went from 119 seconds to 50, the fine search from 98 seconds to 14,
+  and the whole reading from 8 minutes 12 seconds to 6 minutes 37 seconds, with
+  the same 36 lines and the same time on every one of them.
+- **The words of a karaoke are kept.** Reading the words off the picture of the
+  video takes minutes, so a link that has been read is answered from what was
+  kept. The picture is neither fetched nor read a second time.
+
+### Added
+
+- **The reader says where the time went.** The karaoke result carries the time
+  of the opening of the reader, of the survey, of the reading of the words and
+  of the fine search, so the part that is slow is never a mystery.
+
 ## [0.6.0] - 2026-11-21
 
 More speech engines, and the words of a song can now be marked as they are sung.

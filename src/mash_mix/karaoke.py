@@ -140,6 +140,10 @@ _BANGLA_LAST = 0x09FF
 _BANGLA_DIGIT_FIRST = 0x09E6
 _BANGLA_DIGIT_LAST = 0x09EF
 
+# How near in the picture a row of text has to be to the middle of a row of
+# the song for it to be the words of that row.
+_NEAR = 30
+
 # How fine the search for the moment a line starts being sung is. This part
 # of the work reads the colour of the picture only, so it is cheap.
 _FINE_STEP = 0.1
@@ -318,6 +322,104 @@ def _frame_at(capture: Any, moment: float, fps: float) -> Optional[Any]:
     return frame if ok else None
 
 
+def _walk_frames(
+    capture: Any,
+    moments: Sequence[float],
+    fps: float,
+    visit: Callable[[float, Optional[Any]], None],
+) -> None:
+    """Walk the pictures at a list of moments, in the order of the moments.
+
+    Jumping to every moment makes the video be found again and again, and
+    that costs more than reading the video through once. The picture is given
+    to the caller as it is read, so only one of them is ever held, and the
+    caller is told the moment the picture belongs to.
+    """
+    wanted: Dict[int, List[float]] = {}
+    for moment in moments:
+        wanted.setdefault(int(moment * fps), []).append(moment)
+    if not wanted:
+        return
+
+    # The walk gives the pictures in the order of the frames, so the moments
+    # have to be in step. When they are not, the video is jumped to.
+    if any(moments[at] > moments[at + 1] for at in range(len(moments) - 1)):
+        for moment in moments:
+            visit(moment, _frame_at(capture, moment, fps))
+        return
+
+    limit = max(wanted)
+    capture.set(_prop(capture, "POS_FRAMES"), 0)
+    index = 0
+    while index <= limit:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        for moment in wanted.get(index, ()):
+            visit(moment, frame)
+        index += 1
+
+    # A video that ends early leaves the moments after it without a picture.
+    for frame_index, moments_here in wanted.items():
+        if frame_index < index:
+            continue
+        for moment in moments_here:
+            visit(moment, None)
+
+
+def _walk_window(
+    capture: Any,
+    first: float,
+    last: float,
+    fps: float,
+    step: float,
+) -> List[Tuple[float, Optional[Any]]]:
+    """The pictures of a short window of the video, at a step.
+
+    The window is read through, because jumping to every moment of it costs
+    more than reading the window through once. The window is short, so only a
+    little of the video is read.
+    """
+    moments: List[float] = []
+    moment = first
+    while moment <= last:
+        moments.append(moment)
+        moment += step
+    if not moments:
+        return []
+
+    wanted: Dict[int, List[float]] = {}
+    for moment in moments:
+        wanted.setdefault(int(moment * fps), []).append(moment)
+
+    first_index = min(wanted)
+    last_index = max(wanted)
+    capture.set(_prop(capture, "POS_FRAMES"), first_index)
+    pictures: List[Tuple[float, Optional[Any]]] = []
+    index = first_index
+    while index <= last_index:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        for moment in wanted.get(index, ()):
+            pictures.append((moment, frame))
+        index += 1
+    return pictures
+
+
+def _region_of(slots: Sequence[_Slot], band: int) -> Tuple[int, int, int, int]:
+    """The part of the picture where the words of the song can be.
+
+    The part is a little larger than the rows of the song, because a row of
+    text that sits near a row of the song can still be taken for its words.
+    """
+    top = max(0, min(slot.top for slot in slots) - _NEAR - band)
+    bottom = max(slot.bottom for slot in slots) + _NEAR - band
+    left = max(0, min(slot.left for slot in slots) - _NEAR)
+    right = max(slot.right for slot in slots) + _NEAR
+    return (top, bottom, left, right)
+
+
 def _video_facts(capture: Any) -> Tuple[float, float]:
     """The length of the video and its rate."""
     fps = float(capture.get(_prop(capture, "FPS")) or 25.0)
@@ -426,11 +528,12 @@ def _sweep_positions(
     import cv2  # type: ignore
 
     samples: List[List[Optional[Tuple[float, float, float]]]] = []
-    for moment in moments:
-        picture = _frame_at(capture, moment, fps)
+
+    def visit(moment: float, picture: Optional[Any]) -> None:
+        """Take the colour of the words of one picture of the video."""
         if picture is None:
             samples.append([None] * len(slots))
-            continue
+            return
         frame = cv2.cvtColor(picture, cv2.COLOR_BGR2RGB)
         row_samples: List[Optional[Tuple[float, float, float]]] = []
         for slot in slots:
@@ -457,6 +560,8 @@ def _sweep_positions(
                 )
             )
         samples.append(row_samples)
+
+    _walk_frames(capture, moments, fps, visit)
     return samples
 
 
@@ -978,9 +1083,9 @@ def _refine_start(
     box = (left, top, right, bottom)
 
     previous: Optional[float] = None
-    moment = line.start + _FINE_STEP
-    while moment <= line.sung_start:
-        picture = _frame_at(capture, moment, fps)
+    for moment, picture in _walk_window(
+        capture, line.start + _FINE_STEP, line.sung_start, fps, _FINE_STEP
+    ):
         if picture is not None:
             colour = _letters_colour(picture, box)
             if colour is not None:
@@ -989,7 +1094,6 @@ def _refine_start(
                     line.sung_start = moment
                     return
                 previous = value
-        moment += _FINE_STEP
 
 
 def _order_lines(
@@ -1057,10 +1161,12 @@ def read_burned_in_lyrics(
     """
     started = time.perf_counter()
     reader = _open_reader(language)
+    opened = time.perf_counter()
     capture = _open_capture(video_path)
     try:
         duration, fps = _video_facts(capture)
         found = _survey(reader, capture, duration, fps, survey_frames)
+        surveyed = time.perf_counter()
         band = found["band"]
         slots = found["slots"]
         all_moments = found["moments"]
@@ -1070,15 +1176,19 @@ def read_burned_in_lyrics(
 
         samples: List[List[Optional[_Sample]]] = []
         picture_width = 0
-        for index, at in enumerate(all_moments):
-            picture = _frame_at(capture, at, fps)
+
+        def visit(at: float, picture: Optional[Any]) -> None:
+            """Take the words of one picture of the video."""
+            nonlocal picture_width
+
             if picture is None:
                 samples.append([None] * len(slots))
-                continue
+                return
             if not picture_width:
                 picture_width = int(picture.shape[1])
             crop = picture[band[0] : band[1] + 1]
             rows = _group_rows(_read_boxes(reader, crop)) if crop.size else []
+
             placed: List[Optional[_Sample]] = []
             for slot in slots:
                 middle = (slot.top + slot.bottom) / 2.0 - band[0]
@@ -1089,7 +1199,7 @@ def read_burned_in_lyrics(
                     if gap < best_gap:
                         best_gap = gap
                         best = row
-                if best is None or best_gap > 30:
+                if best is None or best_gap > _NEAR:
                     placed.append(None)
                     continue
                 if best.conf < 0.15:
@@ -1105,11 +1215,14 @@ def read_burned_in_lyrics(
                     )
                 )
             samples.append(placed)
-            if progress and index % 10 == 0:
+            if progress and len(samples) % 10 == 0:
                 progress(
-                    0.05 + 0.80 * (index / max(1, len(all_moments))),
+                    0.05 + 0.80 * (len(samples) / max(1, len(all_moments))),
                     "The words are being read off the picture.",
                 )
+
+        _walk_frames(capture, all_moments, fps, visit)
+        swept = time.perf_counter()
 
         lines = _build_lines(samples, all_moments)
 
@@ -1148,6 +1261,7 @@ def read_burned_in_lyrics(
             if span < _MIN_TRAVEL:
                 continue
             _refine_start(capture, line, fps, base, axis, span)
+        refined = time.perf_counter()
 
         if progress:
             progress(0.95, "The lines are being put in order.")
@@ -1168,6 +1282,10 @@ def read_burned_in_lyrics(
                 "band": [int(band[0]), int(band[1])],
                 "script": script,
                 "lines_found": len(result_lines),
+                "seconds_opening": round(opened - started, 3),
+                "seconds_survey": round(surveyed - opened, 3),
+                "seconds_reading": round(swept - surveyed, 3),
+                "seconds_refining": round(refined - swept, 3),
             },
         )
     finally:

@@ -541,6 +541,15 @@ moment the line is sung, so the timings are the timings of the song and not a gu
 again in every frame they are on the screen in, because a reader that is nearly right is
 wrong in a different way every time it is tried.
 
+**The video is read through, not jumped to.** The reader used to jump to every second of
+the song and to every moment of the fine search, and every jump made the video be found
+again. The pictures that come out are the same ones, and the run is much shorter for it.
+The report says where the time went, so the part that is slow is never a mystery.
+
+**A link that has been read is answered at once.** Reading the words of a karaoke off the
+picture takes minutes, so a link that has been read is kept and the same link asked for
+again does not read the picture a second time.
+
 A video with nothing that sweeps is not a karaoke, and the survey says so without spending
 the rest of the work on it. The run carries on to the model instead. The command line has
 `--karaoke auto|on|off` and the HTTP route has a `karaoke` field of the same three values.

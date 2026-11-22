@@ -18,12 +18,34 @@ makes the difference:
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..types import AudioBuffer, LyricLine, LyricsResult, Segment
 from ._common import Timer, pick_backend, to_buffer, to_stereo_buffer
 
 __all__ = ["extract_lyrics", "extract_lyrics_to_files", "extract_lyrics_from_url"]
+
+# The words of a karaoke are read off the picture of the video with a model,
+# and that takes minutes. A link that has been read is kept, so that the same
+# link asked for again is answered at once instead of being read again.
+_KARAOKE_READS: OrderedDict[str, Tuple[List[LyricLine], Dict[str, Any]]] = OrderedDict()
+_KARAOKE_READS_MAX = 4
+
+
+def _copy_lines(lines: Sequence[LyricLine]) -> List[LyricLine]:
+    """A copy of a list of lines, so that a kept one is never changed."""
+    return [
+        LyricLine(
+            start=line.start,
+            end=line.end,
+            text=line.text,
+            speaker=line.speaker,
+            probability=line.probability,
+            words=list(line.words),
+        )
+        for line in lines
+    ]
 
 
 def _drop_repeated_lines(lines: List[LyricLine], *, max_repeats: int = 2) -> List[LyricLine]:
@@ -966,6 +988,27 @@ def _read_karaoke(
         )
         return [], {}
 
+    # A link that has been read before is answered from what was kept, so the
+    # video is not fetched and the picture is not read a second time.
+    key = f"{url}|{language}|{interval}"
+    kept = _KARAOKE_READS.get(key)
+    if kept is not None:
+        _KARAOKE_READS.move_to_end(key)
+        lines, facts = kept
+        steps.append(
+            {
+                "step": "karaoke",
+                "ok": True,
+                "lines": len(lines),
+                "swept": facts.get("swept", False),
+                "elapsed": facts.get("elapsed", 0.0),
+                "band": facts.get("band", []),
+                "rows": facts.get("rows", 0),
+                "kept": True,
+            }
+        )
+        return _copy_lines(lines), dict(facts)
+
     try:
         video_path = fetch_video(url, work_dir)
     except SourceError as exc:
@@ -995,7 +1038,14 @@ def _read_karaoke(
         "band": list(result.band),
         "elapsed": result.elapsed,
         "frames_read": result.meta.get("frames_read", 0),
+        "seconds_opening": result.meta.get("seconds_opening", 0.0),
+        "seconds_survey": result.meta.get("seconds_survey", 0.0),
+        "seconds_reading": result.meta.get("seconds_reading", 0.0),
+        "seconds_refining": result.meta.get("seconds_refining", 0.0),
     }
+    _KARAOKE_READS[key] = (list(result.lines), dict(facts))
+    while len(_KARAOKE_READS) > _KARAOKE_READS_MAX:
+        _KARAOKE_READS.popitem(last=False)
     return list(result.lines), facts
 
 
