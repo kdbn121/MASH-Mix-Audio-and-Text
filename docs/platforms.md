@@ -319,4 +319,4 @@ The app object is `mash_mix.server.app:app`. See [api.md](api.md) for the routes
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

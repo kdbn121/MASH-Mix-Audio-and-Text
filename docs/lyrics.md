@@ -567,4 +567,4 @@ That is the honest state of running a speech model on a sung voice in 2026. The 
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

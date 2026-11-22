@@ -456,3 +456,12 @@ def test_the_web_page_is_responsive():
     assert "@media (pointer: coarse)" in page
     assert "prefers-reduced-motion" in page
     assert "clamp(" in page
+
+
+def test_the_web_page_carries_the_version_of_the_engine():
+    """The footer of the page shows the number of the engine that serves it."""
+    server = _server_module()
+    mash_mix = pytest.importorskip("mash_mix")
+    page = (server.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert f"MASH-Mix-Audio-and-Text V{mash_mix.__version__}" in page

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mash-mix-audio-and-text"
-version = "0.6.1"
+version = "0.6.2"
 description = "Cross-platform speech and text engine: analysis, extraction, song-to-lyric, TTS, STT and STS, with first-class Bangla (bn-BD, bn-IN) support."
 readme = "README.md"
 requires-python = ">=3.9"

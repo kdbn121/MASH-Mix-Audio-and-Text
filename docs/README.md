@@ -28,4 +28,4 @@ The top level [README.md](../README.md) is the front door: the install, the quic
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

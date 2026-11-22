@@ -456,4 +456,4 @@ print(args.command, args.audio, args.output_dir)
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

@@ -580,4 +580,4 @@ curl -OJ http://localhost:8000/api/lyrics/$JOB/download/srt
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.

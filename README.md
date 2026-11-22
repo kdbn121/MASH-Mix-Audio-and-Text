@@ -1031,7 +1031,7 @@ machine, so the caller has to name one. Everything else runs here.
 
 ## Licence
 
-MIT. Copyright (c) 2026 MASH (Khaled Bhuiyan).
+MIT. MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan).
 
 The models themselves keep their own licences. Several of the best Bangla voices are
 released under non commercial terms, so check `mash-mix models` before shipping a

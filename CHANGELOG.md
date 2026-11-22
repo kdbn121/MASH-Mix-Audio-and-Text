@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 The format follows Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [0.6.2] - 2026-11-22
+
+The number of the release is on the page, so the file and the page always say the same thing.
+
+### Added
+
+- **The footer of the web page carries the number of the engine.** The name of the
+  repository comes first and the release number after it, so the page in the browser
+  and the archive that was unpacked always say the same number.
+- **Every document of the project carries the number too.** The footer of the
+  readme, of the change log and of every page under `docs/` names the repository
+  and the release number.
+
 ## [0.6.1] - 2026-11-22
 
 The karaoke reader is quicker, and a link that has been read is answered at once.
@@ -506,4 +519,4 @@ First release.
 
 ---
 
-Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
+MASH-Mix-Audio-and-Text V0.6.2. Copyright (c) 2026 MASH (Khaled Bhuiyan). MIT Licence. See LICENSE.
